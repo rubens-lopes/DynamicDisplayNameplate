@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: Dynamic Display Nameplate
+## Notes: Shows enemy nameplates only while you're in combat.
+## Author: Rubens Lopes
+## Version: @project-version@
+## Category: Combat
+## IconTexture: Interface\Icons\Ability_DualWield
+
+DynamicDisplayNameplate.lua
