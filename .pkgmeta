@@ -1,0 +1,11 @@
+package-as: DynamicDisplayNameplate
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - README.md
+  - docs
+  - media
+  - tests
