@@ -18,4 +18,4 @@ Get it from CurseForge, or copy this folder to `World of Warcraft/_classic_beta_
 luajit tests/test_addon.lua
 ```
 
-Tagging `vX.Y.Z` runs the BigWigs packager in GitHub Actions and uploads the build to CurseForge. Tags containing `beta` or `alpha` go up as beta or alpha releases.
+Tagging `vX.Y.Z` runs the BigWigs packager in GitHub Actions and attaches the zip to a GitHub Release. Tags containing `beta` or `alpha` become pre-releases. Upload that zip to CurseForge by hand, or add a `CF_API_TOKEN` repo secret and the same workflow uploads it for you.

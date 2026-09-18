@@ -72,6 +72,6 @@ The packaged zip contains only the `.toc`, the `.lua`, `LICENSE`, and `CHANGELOG
 ## Release
 
 1. Public repo `rubens-lopes/DynamicDisplayNameplate`. Commits use github@rubenslop.es, set for this repo only.
-2. The user creates the CurseForge project using `docs/curseforge.md` and generates an API token.
-3. The project ID goes into the TOC as `## X-Curse-Project-ID`. The user stores the token with `gh secret set CF_API_TOKEN`, which is the variable name the packager reads.
-4. After the in-game checklist passes, push the tag `v0.0.1-beta1`. `BigWigsMods/packager@v2` builds the zip and uploads it to CurseForge and GitHub Releases.
+2. The user creates the CurseForge project (ID 1701381) using `docs/curseforge.md`. The ID goes into the TOC as `## X-Curse-Project-ID`.
+3. After the in-game checklist passes, push the tag `v0.0.1-beta1`. `BigWigsMods/packager` builds the zip and attaches it to a GitHub Release.
+4. The user uploads that zip on the CurseForge project's Files page with release type Beta and game version Forever 1.60.1. Automatic upload was dropped because it needs a CurseForge API token. Adding a `CF_API_TOKEN` repo secret later turns it on with no workflow change.
