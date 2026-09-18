@@ -3,6 +3,7 @@
 ## Notes: Shows enemy nameplates only while you're in combat.
 ## Author: Rubens Lopes
 ## Version: @project-version@
+## X-Curse-Project-ID: 1701381
 ## Category: Combat
 ## IconTexture: Interface\Icons\Ability_DualWield
 
