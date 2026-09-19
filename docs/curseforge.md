@@ -34,4 +34,11 @@ There are no options, slash commands, or saved settings. Install it and it works
 - The addon changes only the enemy nameplate setting. Friendly nameplates and "Always show nameplates" are left as you set them.
 - If you uninstall it, enemy nameplates stay off. Press V to turn them back on.
 
-**Problems?** Open an issue on GitHub with any error text the addon printed in chat.
+**Compatibility**
+
+- World of Warcraft: Forever (1.60.x)
+- Works alongside other nameplate addons. It only decides when enemy nameplates are shown, not what they look like.
+
+**Source and issues**
+
+The code is on [GitHub](https://github.com/rubens-lopes/DynamicDisplayNameplate). If something goes wrong, open an issue there and include any error text the addon printed in chat.
