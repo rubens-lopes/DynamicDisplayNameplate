@@ -5,7 +5,7 @@ Status: approved in chat
 
 ## Goal
 
-A standalone World of Warcraft: Forever addon that shows enemy nameplates only while the player is in combat. It is the "combat plates" feature from Leatrix Plus, without the rest of Leatrix Plus. It is published on CurseForge.
+A standalone World of Warcraft: Forever addon that shows enemy (and, by default, friendly player) nameplates only while the player is in combat. It is the "combat plates" feature from Leatrix Plus, without the rest of Leatrix Plus. It is published on CurseForge.
 
 ## Target
 
@@ -15,7 +15,7 @@ A standalone World of Warcraft: Forever addon that shows enemy nameplates only w
 
 ## Behavior
 
-The addon writes only the `nameplateShowEnemies` CVar.
+The addon writes only the `nameplateShowEnemies` CVar, plus `nameplateShowFriends` when the friends setting is on (the default). Every row below writes both.
 
 | Event | Condition | Write |
 |---|---|---|
@@ -28,9 +28,16 @@ Rules for every write:
 
 - Skip the write when `InCombatLockdown()` is true. This is the only combat check. `UnitAffectingCombat` is not used because the 12.x engine can return secret values, and testing a secret value in a condition raises an error. `PLAYER_REGEN_DISABLED` fires before lockdown starts and `PLAYER_REGEN_ENABLED` fires after it ends, so the normal path is never skipped.
 - Call `C_CVar.SetCVar`, falling back to the global `SetCVar`, inside `pcall`.
-- If a write raises an error or returns false, print one chat line per session naming the addon and the error. Never raise an error.
+- If a write raises an error or returns false, print one chat line per CVar per session naming the addon, the CVar and the error. Never raise an error.
 
-Out of scope: options, slash commands, SavedVariables, friendly nameplates, `nameplateShowAll`.
+### Settings and commands (added 2026-09-28)
+
+- `## SavedVariables: DynamicDisplayNameplateDB`, loaded on `ADDON_LOADED`. One field: `friends` (default `true`).
+- Every slash command uses the `/ddn-` prefix:
+  - `/ddn-help` lists the commands and the current setting.
+  - `/ddn-friends [on|off]` sets `friends`; no argument toggles. Turning it on hides friendly plates at once (unless in lockdown). Turning it off stops all writes to `nameplateShowFriends`.
+
+Out of scope: a settings panel, an enemies toggle, `nameplateShowAll`.
 
 Known side effects, which the CurseForge description documents:
 

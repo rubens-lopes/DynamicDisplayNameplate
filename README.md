@@ -1,12 +1,17 @@
 # Dynamic Display Nameplate
 
-A World of Warcraft: Forever addon that shows enemy nameplates only while you're in combat. It's the "combat plates" option from Leatrix Plus on its own, with nothing to configure.
+A World of Warcraft: Forever addon that shows enemy and friendly player nameplates only while you're in combat. It's the "combat plates" option from Leatrix Plus on its own.
 
-- Entering combat turns enemy nameplates on.
+- Entering combat turns nameplates on.
 - Leaving combat turns them off.
 - Logging in, reloading, or zoning out of combat turns them off.
 
-If you press V to show nameplates outside combat, they hide again at the end of your next fight. Uninstalling leaves enemy nameplates off; press V to turn them back on.
+If you press V (or Shift+V for friendly plates) to show nameplates outside combat, they hide again at the end of your next fight. Uninstalling leaves them off; press V / Shift+V to turn them back on.
+
+## Commands
+
+- `/ddn-help` lists the commands.
+- `/ddn-friends [on|off]` sets whether friendly plates are managed too. On by default; with no argument it toggles. When off, the addon leaves friendly plates alone.
 
 ## Install
 
