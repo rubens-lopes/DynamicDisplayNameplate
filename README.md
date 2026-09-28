@@ -11,7 +11,12 @@ If you press V (or Shift+V for friendly plates) to show nameplates outside comba
 ## Commands
 
 - `/ddn-help` lists the commands.
-- `/ddn-friends [on|off]` sets whether friendly plates are managed too. On by default; with no argument it toggles. When off, the addon leaves friendly plates alone.
+- `/ddn-enemies [on|off]` sets whether enemy plates follow combat. On by default. When off, the addon leaves enemy plates alone.
+- `/ddn-friends [on|off]` sets whether friendly player plates follow combat. On by default. When off, the addon leaves friendly plates alone.
+- `/ddn-status` shows each nameplate setting, its current value, and what the addon last set it to.
+- `/ddn-watch` prints every game setting change until you run it again. Useful for bug reports.
+
+With no argument, `/ddn-enemies` and `/ddn-friends` toggle. Settings are saved per account.
 
 ## Install
 

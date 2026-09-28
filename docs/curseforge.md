@@ -14,7 +14,7 @@ Paste these into the project form at https://authors.curseforge.com/#/projects/c
 
 ## Summary
 
-Enemy and friendly nameplates only while you're in combat.
+Enemy and friendly player nameplates only while you're in combat.
 
 ## Description
 
@@ -26,15 +26,20 @@ Dynamic Display Nameplate shows enemy and friendly player nameplates when you en
 - Leaving combat turns them off.
 - Logging in, reloading, or zoning out of combat turns them off.
 
-Install it and it works. There is one option:
+Install it and it works. To change it, use these chat commands:
 
 - `/ddn-help` lists the commands.
-- `/ddn-friends [on|off]` sets whether friendly nameplates follow combat too. On by default. When off, the addon leaves friendly nameplates alone.
+- `/ddn-enemies [on|off]` sets whether enemy plates follow combat. On by default. When off, the addon leaves enemy plates alone.
+- `/ddn-friends [on|off]` sets whether friendly player plates follow combat. On by default. When off, the addon leaves friendly plates alone.
+- `/ddn-status` shows each nameplate setting, its current value, and what the addon last set it to.
+- `/ddn-watch` prints every game setting change until you run it again. Useful for bug reports.
+
+With no argument, `/ddn-enemies` and `/ddn-friends` toggle. Settings are saved per account.
 
 **Good to know**
 
 - If you press V (or Shift+V for friendly plates) to show nameplates outside combat, they will hide again at the end of your next fight.
-- The addon changes only the enemy and friendly nameplate settings. "Always show nameplates" is left as you set it.
+- The addon changes only the enemy and friendly player nameplate settings. Friendly NPC plates and "Always show nameplates" are left as you set them.
 - If you uninstall it, nameplates stay off. Press V / Shift+V to turn them back on.
 
 **Compatibility**

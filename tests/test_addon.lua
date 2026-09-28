@@ -9,14 +9,22 @@ local ADDON_NAME = "DynamicDisplayNameplate"
 -- opts.setError   make every CVar write raise this error
 -- opts.setReturn  value every CVar write returns (default true)
 -- opts.saved      DynamicDisplayNameplateDB as left by a previous session
+-- opts.missing    CVar name the client doesn't have (GetCVar returns nil)
+-- opts.console    CVar names C_Console.GetAllCommands() reports (default: none, API absent)
 local function Load(opts)
     opts = opts or {}
     local env = { writes = {}, printed = {}, lockdown = opts.lockdown or false }
 
-    local frame = { events = {}, scripts = {} }
-    function frame:RegisterEvent(event) self.events[event] = true end
-    function frame:UnregisterEvent(event) self.events[event] = nil end
-    function frame:SetScript(name, fn) self.scripts[name] = fn end
+    local function NewFrame()
+        local f = { events = {}, scripts = {} }
+        function f:RegisterEvent(event) self.events[event] = true end
+        function f:UnregisterEvent(event) self.events[event] = nil end
+        function f:IsEventRegistered(event) return self.events[event] == true end
+        function f:SetScript(name, fn) self.scripts[name] = fn end
+        return f
+    end
+    local frame = NewFrame()
+    env.frames = { frame }
 
     local function set(name, value)
         if opts.setError then error(opts.setError, 0) end
@@ -26,22 +34,41 @@ local function Load(opts)
     end
 
     local G = setmetatable({}, { __index = _G })
-    G.CreateFrame = function() return frame end
+    G.CreateFrame = function()
+        if #env.frames == 1 and not env.loaded then return frame end
+        local f = NewFrame()
+        env.frames[#env.frames + 1] = f
+        return f
+    end
     G.InCombatLockdown = function() return env.lockdown end
+    local function get(name)
+        if name == opts.missing then return nil end
+        return "0"
+    end
     if opts.noCCVar then
         G.SetCVar = set
+        G.GetCVar = get
     else
-        G.C_CVar = { SetCVar = set }
+        G.C_CVar = { SetCVar = set, GetCVar = get }
         G.SetCVar = function() error("global SetCVar used while C_CVar exists", 0) end
+        G.GetCVar = function() error("global GetCVar used while C_CVar exists", 0) end
     end
     G.print = function(...) env.printed[#env.printed + 1] = table.concat({ ... }, " ") end
     G.SlashCmdList = {}
+    if opts.console then
+        G.C_Console = { GetAllCommands = function()
+            local list = {}
+            for _, name in ipairs(opts.console) do list[#list + 1] = { command = name } end
+            return list
+        end }
+    end
     G.DynamicDisplayNameplateDB = opts.saved
 
     local chunk = assert(loadfile(ADDON_FILE))
     setfenv(chunk, G)
     chunk(ADDON_NAME, {})
 
+    env.loaded = true
     env.frame = frame
     env.globals = G
     function env.fire(event, ...)
@@ -73,8 +100,8 @@ end
 
 local function writes(env) return table.concat(env.writes, ",") end
 
-local ON = "nameplateShowEnemies=1,nameplateShowFriends=1"
-local OFF = "nameplateShowEnemies=0,nameplateShowFriends=0"
+local ON = "nameplateShowEnemies=1,nameplateShowFriendlyPlayers=1"
+local OFF = "nameplateShowEnemies=0,nameplateShowFriendlyPlayers=0"
 
 local tests = {}
 local function test(name, fn) tests[#tests + 1] = { name = name, fn = fn } end
@@ -88,7 +115,7 @@ end)
 
 test("defines only its saved variable and slash commands as globals", function()
     local env = Load()
-    local stubs = { CreateFrame = 1, InCombatLockdown = 1, C_CVar = 1, SetCVar = 1, print = 1, SlashCmdList = 1 }
+    local stubs = { C_Console = 1, CreateFrame = 1, InCombatLockdown = 1, C_CVar = 1, SetCVar = 1, GetCVar = 1, print = 1, SlashCmdList = 1 }
     local names = {}
     for k in pairs(env.globals) do
         if not stubs[k] and k ~= "DynamicDisplayNameplateDB" and not k:match("^SLASH_DDN") then
@@ -107,12 +134,26 @@ test("every slash command uses the /ddn- prefix", function()
             assert(v:match("^/ddn%-%l+$"), k .. " = " .. v)
         end
     end
-    eq(n, 2, "slash commands")
+    eq(n, 5, "slash commands")
 end)
 
-test("friendly plates are managed by default on a fresh install", function()
+test("both plate types are managed by default on a fresh install", function()
     local env = Load()
+    eq(env.globals.DynamicDisplayNameplateDB.enemies, true, "saved enemies")
     eq(env.globals.DynamicDisplayNameplateDB.friends, true, "saved friends")
+end)
+
+test("a saved table from v0.1.0 (friends only) gains enemies = true", function()
+    local env = Load({ saved = { friends = false } })
+    eq(env.globals.DynamicDisplayNameplateDB.enemies, true, "saved enemies")
+    eq(env.globals.DynamicDisplayNameplateDB.friends, false, "saved friends")
+end)
+
+test("a saved enemies off setting leaves enemy plates alone", function()
+    local env = Load({ saved = { enemies = false } })
+    env.fire("PLAYER_REGEN_DISABLED")
+    env.fire("PLAYER_REGEN_ENABLED")
+    eq(writes(env), "nameplateShowFriendlyPlayers=1,nameplateShowFriendlyPlayers=0", "writes")
 end)
 
 test("a saved off setting survives a reload", function()
@@ -174,7 +215,7 @@ test("a write that raises warns once per CVar and never errors", function()
     eq(#env.printed, 2, "warnings printed")
     assert(env.printed[1]:find("Dynamic Display Nameplate", 1, true), "warning names the addon: " .. env.printed[1])
     assert(env.printed[1]:find("blocked", 1, true), "warning includes the error: " .. env.printed[1])
-    assert(env.printed[2]:find("nameplateShowFriends", 1, true), "warning names the CVar: " .. env.printed[2])
+    assert(env.printed[2]:find("nameplateShowFriendlyPlayers", 1, true), "warning names the CVar: " .. env.printed[2])
 end)
 
 test("a write that returns false warns once per CVar", function()
@@ -182,6 +223,15 @@ test("a write that returns false warns once per CVar", function()
     env.fire("PLAYER_REGEN_DISABLED")
     env.fire("PLAYER_REGEN_ENABLED")
     eq(#env.printed, 2, "warnings printed")
+end)
+
+test("a CVar the client doesn't have is skipped with one warning", function()
+    local env = Load({ missing = "nameplateShowFriendlyPlayers" })
+    env.fire("PLAYER_REGEN_DISABLED")
+    env.fire("PLAYER_REGEN_ENABLED")
+    eq(writes(env), "nameplateShowEnemies=1,nameplateShowEnemies=0", "writes")
+    eq(#env.printed, 1, "warnings printed")
+    assert(env.printed[1]:find("nameplateShowFriendlyPlayers", 1, true), "warning names the CVar: " .. env.printed[1])
 end)
 
 test("successful writes print nothing", function()
@@ -206,7 +256,7 @@ test("/ddn-friends on hides friendly plates right away out of combat", function(
     local env = Load({ saved = { friends = false } })
     env.slash("/ddn-friends on")
     eq(env.globals.DynamicDisplayNameplateDB.friends, true, "saved friends")
-    eq(writes(env), "nameplateShowFriends=0", "writes")
+    eq(writes(env), "nameplateShowFriendlyPlayers=0", "writes")
 end)
 
 test("/ddn-friends on during combat lockdown waits for the fight to end", function()
@@ -227,6 +277,55 @@ test("/ddn-friends off and junk arguments", function()
     env.slash("/ddn-friends maybe")
     eq(env.globals.DynamicDisplayNameplateDB.friends, false, "junk changes nothing")
     assert(env.printed[#env.printed]:find("usage", 1, true), "junk prints usage")
+end)
+
+test("/ddn-status shows the setting, live values and last writes", function()
+    local env = Load({ missing = "nameplateShowFriendlyPlayers" })
+    env.fire("PLAYER_REGEN_ENABLED")
+    env.printed = {}
+    env.slash("/ddn-status")
+    local out = table.concat(env.printed, "\n")
+    assert(out:find("out of combat", 1, true), out)
+    assert(out:find("enemy plates managed: nameplateShowEnemies = 0 (addon last wrote 0)", 1, true), out)
+    assert(out:find("friendly player plates managed: nameplateShowFriendlyPlayers = missing (addon last wrote nothing)", 1, true), out)
+    eq(writes(env), "nameplateShowEnemies=0", "status writes nothing")
+end)
+
+test("/ddn-status lists other nameplateShow CVars when the client can enumerate them", function()
+    local env = Load({ console = { "nameplateShowEnemies", "nameplateShowFriendlyNPCs", "NameplateShowAll", "nameplateMaxDistance" } })
+    env.slash("/ddn-status")
+    local out = table.concat(env.printed, "\n")
+    assert(out:find("other: NameplateShowAll=0, nameplateShowFriendlyNPCs=0", 1, true), out)
+    assert(not out:find("nameplateMaxDistance", 1, true), out)
+end)
+
+test("/ddn-enemies off stops managing enemy plates; on hides them right away", function()
+    local env = Load()
+    env.slash("/ddn-enemies off")
+    eq(env.globals.DynamicDisplayNameplateDB.enemies, false, "saved enemies")
+    env.fire("PLAYER_REGEN_DISABLED")
+    eq(writes(env), "nameplateShowFriendlyPlayers=1", "writes while off")
+    env.writes = {}
+    env.fire("PLAYER_REGEN_ENABLED")
+    env.writes = {}
+    env.slash("/ddn-enemies")
+    eq(env.globals.DynamicDisplayNameplateDB.enemies, true, "toggled back on")
+    eq(writes(env), "nameplateShowEnemies=0", "writes when turned on")
+    env.slash("/ddn-enemies nope")
+    assert(env.printed[#env.printed]:find("usage: /ddn-enemies", 1, true), env.printed[#env.printed])
+end)
+
+test("/ddn-watch prints setting changes until run again", function()
+    local env = Load()
+    env.slash("/ddn-watch")
+    local watcher = env.frames[2]
+    eq(watcher.events.CVAR_UPDATE, true, "watching")
+    watcher.scripts.OnEvent(watcher, "CVAR_UPDATE", "nameplateShowFriends", "1")
+    assert(env.printed[#env.printed]:find("nameplateShowFriends = 1", 1, true), env.printed[#env.printed])
+    env.slash("/ddn-watch")
+    eq(watcher.events.CVAR_UPDATE, nil, "stopped")
+    env.slash("/ddn-watch")
+    eq(#env.frames, 2, "reuses its frame")
 end)
 
 test("/ddn-help lists every command", function()

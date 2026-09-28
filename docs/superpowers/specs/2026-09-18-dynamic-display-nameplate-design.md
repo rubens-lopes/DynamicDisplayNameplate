@@ -15,7 +15,7 @@ A standalone World of Warcraft: Forever addon that shows enemy (and, by default,
 
 ## Behavior
 
-The addon writes only the `nameplateShowEnemies` CVar, plus `nameplateShowFriends` when the friends setting is on (the default). Every row below writes both.
+The addon writes only the `nameplateShowEnemies` CVar, plus `nameplateShowFriendlyPlayers` when the friends setting is on (the default). Every row below writes both.
 
 | Event | Condition | Write |
 |---|---|---|
@@ -27,17 +27,20 @@ The addon writes only the `nameplateShowEnemies` CVar, plus `nameplateShowFriend
 Rules for every write:
 
 - Skip the write when `InCombatLockdown()` is true. This is the only combat check. `UnitAffectingCombat` is not used because the 12.x engine can return secret values, and testing a secret value in a condition raises an error. `PLAYER_REGEN_DISABLED` fires before lockdown starts and `PLAYER_REGEN_ENABLED` fires after it ends, so the normal path is never skipped.
+- Skip the write, with a warning, when `C_CVar.GetCVar` (or global `GetCVar`) returns nil: the client silently ignores writes to CVars it doesn't have. On the 12.x engine the friendly-player CVar is `nameplateShowFriendlyPlayers`; `nameplateShowFriends` doesn't exist.
 - Call `C_CVar.SetCVar`, falling back to the global `SetCVar`, inside `pcall`.
 - If a write raises an error or returns false, print one chat line per CVar per session naming the addon, the CVar and the error. Never raise an error.
 
 ### Settings and commands (added 2026-09-28)
 
-- `## SavedVariables: DynamicDisplayNameplateDB`, loaded on `ADDON_LOADED`. One field: `friends` (default `true`).
+- `## SavedVariables: DynamicDisplayNameplateDB`, loaded on `ADDON_LOADED`. Fields: `enemies` and `friends`, each defaulting to `true` (older saved tables gain the missing field).
 - Every slash command uses the `/ddn-` prefix:
-  - `/ddn-help` lists the commands and the current setting.
-  - `/ddn-friends [on|off]` sets `friends`; no argument toggles. Turning it on hides friendly plates at once (unless in lockdown). Turning it off stops all writes to `nameplateShowFriends`.
+  - `/ddn-help` lists the commands and the current settings.
+  - `/ddn-enemies [on|off]` and `/ddn-friends [on|off]` set `enemies` / `friends`; no argument toggles. Turning one on hides those plates at once (unless in lockdown). Turning it off stops all writes to its CVar.
+  - `/ddn-status` prints lockdown state and, per plate type, whether it's managed, the live CVar value (or "missing"), and the addon's last write. It also lists other `nameplateShow*` CVars when `C_Console.GetAllCommands` exists.
+  - `/ddn-watch` toggles printing every `CVAR_UPDATE` (name and value), to find renamed CVars.
 
-Out of scope: a settings panel, an enemies toggle, `nameplateShowAll`.
+Out of scope: a settings panel, friendly NPC plates, `nameplateShowAll`.
 
 Known side effects, which the CurseForge description documents:
 
