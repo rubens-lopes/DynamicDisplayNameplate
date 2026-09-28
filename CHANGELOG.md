@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.0-beta1
 
 - Friendly player nameplates now also show only while you're in combat. This is on by default; turn it off with `/ddn-friends off`.
 - New slash commands: `/ddn-help` and `/ddn-friends [on|off]`. The setting is saved per account.
