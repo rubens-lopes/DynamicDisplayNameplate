@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- New options panel (`/ddn-options`, or Esc > Options > AddOns) with an explanation of each switch.
+- New: friendly plates at full health fade in combat and hide out of combat (`/ddn-fadefull`). On by default.
+- New: show hurt friendly plates out of combat (`/ddn-showhurt`). On by default.
+- New: friendly plates on the left, enemy plates on the right, with plates stacking instead of overlapping (`/ddn-sides`). On by default.
+
 ## v0.2.0-beta1
 
 - Fix: friendly player plates never changed. Forever calls the setting `nameplateShowFriendlyPlayers`, not `nameplateShowFriends`.
