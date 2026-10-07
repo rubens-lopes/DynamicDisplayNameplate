@@ -22,29 +22,40 @@ local SIDE_OFFSET = 60
 local TITLE = "Dynamic Display Nameplate"
 local TAG = "|cff33ccff" .. TITLE .. ":|r "
 
--- Every saved switch, in the order the options panel shows them. All start on.
+-- Every saved switch, in the order the options panel shows them. All start on
+-- unless marked off = true.
 local OPTIONS = {
     { key = "enemies", command = "enemies", label = "Enemy plates only in combat",
       help = "Turns enemy nameplates on when you enter combat and off when you leave it. "
           .. "Turn this off to leave them alone; V shows and hides them as usual." },
+    { key = "engaged", command = "engaged", label = "Enemy plates only for mobs fighting your group", off = true,
+      help = "Hides the plate of any enemy NPC that isn't your target, has nobody in your group on its threat list "
+          .. "and isn't targeting one of you. Enemy players always show. Hidden plates still take up room when plates stack." },
     { key = "friends", command = "friends", label = "Friendly player plates only in combat",
       help = "Turns friendly player nameplates on when you enter combat and off when you leave it. "
           .. "Turn this off to leave them alone; Shift+V shows and hides them as usual." },
+    { key = "groupOnly", command = "group", label = "Friendly player plates only for your party or raid", off = true,
+      help = "Hides the plate of any friendly player who isn't in your party or raid, so solo you see none. "
+          .. "Friendly NPCs aren't affected. Hidden plates still take up room when plates stack." },
     { key = "fadeFull", command = "fadefull", label = "Fade friendly plates at full health",
       help = "While a friendly player is at full health, their plate is faint in combat and hidden out of combat. "
           .. "It turns solid as soon as they lose health. Hidden plates still take up room when plates stack." },
     { key = "showHurt", command = "showhurt", label = "Show hurt friendly plates out of combat",
       help = "Keeps friendly plates switched on outside combat, so anyone below full health still shows. "
           .. "Players at full health stay hidden out of combat while the fade option or the friendly combat option is on." },
+    { key = "deficit", command = "deficit", label = "Missing health on friendly plates", off = true,
+      help = "Friendly plates show how much health is missing (-0 at full health) in place of Blizzard's health number. "
+          .. "Inside dungeons and raids Blizzard keeps friendly plates off limits to addons; there, the party frames "
+          .. "can show missing health instead. This used to be the Deficit Plates addon; disable that one." },
     { key = "sides", command = "sides", label = "Friendly plates on the left, enemy plates on the right",
-      help = "Plates stack instead of overlapping, and each plate shifts sideways: friendly ones to the left "
-          .. "of the character, enemy ones to the right, so the two groups don't mix. "
-          .. "Turning this off puts the overlap setting back the way it was." },
+      help = "Each plate shifts sideways: friendly ones to the left of the character, enemy ones to the right, "
+          .. "so the two groups don't mix. On clients with the nameplateMotion setting, plates also stack "
+          .. "instead of overlapping, and turning this off puts that setting back." },
 }
 
 -- Replaced by the saved table on ADDON_LOADED.
 local settings = {}
-for _, option in ipairs(OPTIONS) do settings[option.key] = true end
+for _, option in ipairs(OPTIONS) do settings[option.key] = not option.off end
 
 local warned = {}
 local lastWrite = {}
@@ -52,9 +63,15 @@ local lastError
 local inCombat = false
 -- Nameplate unit token -> Blizzard nameplate, while that plate is shown.
 local plates = {}
+-- Nameplate unit tokens of shown plates addons may not touch.
+local forbidden = {}
 -- Blizzard UnitFrames we moved or faded. Weak keys: Blizzard reuses them.
 local moved = setmetatable({}, { __mode = "k" })
 local faded = setmetatable({}, { __mode = "k" })
+-- Our missing-health text per Blizzard UnitFrame, same weak keys.
+local deficitTexts = setmetatable({}, { __mode = "k" })
+-- The old Deficit Plates addon, if still enabled, owns the health text.
+local deficitPlatesLoaded = false
 
 local function GetValue(cvar)
     local get = (C_CVar and C_CVar.GetCVar) or GetCVar
@@ -89,9 +106,10 @@ local function FriendsWanted(combat)
 end
 
 -- Stacking on while sides is on. The old value is saved so turning sides off,
--- even after a reload, puts it back.
+-- even after a reload, puts it back. WoW Forever has no nameplateMotion and
+-- its replacement isn't known yet, so there it's skipped without a warning.
 local function ApplyMotion()
-    if InCombatLockdown() then return end
+    if InCombatLockdown() or GetValue(MOTION_CVAR) == nil then return end
     if settings.sides then
         local current = GetValue(MOTION_CVAR)
         if current == "1" then return end
@@ -110,7 +128,70 @@ local function Plain(v)
     return v
 end
 
-local function IsFriend(unit) return Plain(UnitIsFriend("player", unit)) == true end
+-- true if the unit is in your party or raid, false if not, nil if secret.
+local function InGroup(unit)
+    local party, raid = UnitInParty(unit), UnitInRaid(unit)
+    if issecretvalue and (issecretvalue(party) or issecretvalue(raid)) then return nil end
+    return (party or raid) and true or false
+end
+
+-- Friendliness can be secret (inside instances, it seems). Party and raid
+-- members are always friends, so they still count when it is.
+local function IsFriend(unit)
+    local friend = Plain(UnitIsFriend("player", unit))
+    if friend ~= nil then return friend == true end
+    return InGroup(unit) == true
+end
+
+-- Whose threat counts as the group's: you, your pet, and party or raid
+-- members with their pets. Rebuilt when the group changes.
+local members = { "player", "pet" }
+local function UpdateMembers()
+    members = { "player", "pet" }
+    local prefix, count = "party", GetNumSubgroupMembers()
+    if IsInRaid() then prefix, count = "raid", GetNumGroupMembers() end
+    for i = 1, count do
+        members[#members + 1] = prefix .. i
+        members[#members + 1] = prefix .. "pet" .. i
+    end
+end
+
+-- true if the mob is your target, has someone in the group on its threat
+-- list or targets one of you; false if none of that; nil if a secret value
+-- hid part of the answer.
+local function Engaged(unit)
+    local unknown = false
+    local function Yes(v)
+        if issecretvalue and issecretvalue(v) then
+            unknown = true
+            return false
+        end
+        return v ~= nil and v ~= false
+    end
+    if Yes(UnitIsUnit(unit, "target")) then return true end
+    -- nil when not on the threat list, 0-3 when on it.
+    for _, member in ipairs(members) do
+        if Yes(UnitThreatSituation(member, unit)) then return true end
+    end
+    local target = unit .. "target"
+    if Yes(UnitIsUnit(target, "player")) or Yes(UnitIsUnit(target, "pet"))
+        or Yes(UnitPlayerOrPetInParty(target)) or Yes(UnitPlayerOrPetInRaid(target)) then
+        return true
+    end
+    if not unknown then return false end
+end
+
+-- Hidden: friendly players known not to be in the group (group only), and
+-- enemy NPCs known not to be fighting it (engaged). Unknown means shown.
+local function ShouldHide(unit, friend)
+    local player = Plain(UnitIsPlayer(unit))
+    if friend then
+        if not settings.groupOnly or player ~= true then return false end
+        return InGroup(unit) == false
+    end
+    if not settings.engaged or player ~= false then return false end
+    return Engaged(unit) == false
+end
 
 -- Health is secret, so it can't be compared to 100%. A curve turns it into
 -- 1 below full health and atFull at full, and SetAlpha takes that as it is.
@@ -150,15 +231,28 @@ local function Place(plate, uf, friend)
     end
 end
 
-local function Fade(uf, unit, friend)
+local function Fade(uf, unit, friend, hide)
     local atFull = friend and FullHealthTarget()
-    if atFull then
+    if hide then
+        uf:SetAlpha(0)
+        faded[uf] = true
+    elseif atFull then
         uf:SetAlpha(FullHealthAlpha(unit, atFull))
         faded[uf] = true
     elseif faded[uf] then
         uf:SetAlpha(1)
         faded[uf] = nil
     end
+end
+
+-- Blizzard's health texts are touched only on frames that got our text, so
+-- with the option off, plates stay fully Blizzard's.
+local function ShowDeficit(uf, unit, friend)
+    local bar = uf.healthBar
+    if not bar then return end
+    local show = friend and settings.deficit and not deficitPlatesLoaded
+    if show and not deficitTexts[uf] then deficitTexts[uf] = ns.Deficit.CreateText(bar) end
+    if show or deficitTexts[uf] then ns.Deficit.Update(bar, deficitTexts[uf], unit, show) end
 end
 
 -- Each step in its own pcall, so a client change shows one chat line
@@ -170,8 +264,16 @@ local function UpdatePlate(unit)
     local friend = IsFriend(unit)
     local ok, err = pcall(Place, plate, uf, friend)
     if not ok then Warn("move plates", tostring(err)) end
-    ok, err = pcall(Fade, uf, unit, friend)
+    local hide
+    ok, hide = pcall(ShouldHide, unit, friend)
+    if not ok then
+        Warn("decide which plates to hide", tostring(hide))
+        hide = false
+    end
+    ok, err = pcall(Fade, uf, unit, friend, hide)
     if not ok then Warn("fade full-health plates", tostring(err)) end
+    ok, err = pcall(ShowDeficit, uf, unit, friend)
+    if not ok then Warn("show missing health", tostring(err)) end
 end
 
 local function UpdateAllPlates()
@@ -189,7 +291,12 @@ end
 
 local function OnPlateAdded(unit)
     local plate = C_NamePlate.GetNamePlateForUnit(unit)
-    if not plate or plate:IsForbidden() then return end
+    if not plate then return end
+    -- Forbidden plates (friendly ones inside instances) are Blizzard-only.
+    if plate:IsForbidden() then
+        forbidden[unit] = true
+        return
+    end
     plates[unit] = plate
     UpdatePlate(unit)
 end
@@ -200,10 +307,23 @@ end
 
 local PLATE_EVENTS = {
     NAME_PLATE_UNIT_ADDED = OnPlateAdded,
-    NAME_PLATE_UNIT_REMOVED = function(unit) plates[unit] = nil end,
+    NAME_PLATE_UNIT_REMOVED = function(unit)
+        plates[unit] = nil
+        forbidden[unit] = nil
+    end,
+    -- Friendly plates inside instances arrive only through these.
+    FORBIDDEN_NAME_PLATE_UNIT_ADDED = function(unit) forbidden[unit] = true end,
+    FORBIDDEN_NAME_PLATE_UNIT_REMOVED = function(unit) forbidden[unit] = nil end,
     UNIT_HEALTH = OnUnit,
     UNIT_MAXHEALTH = OnUnit,
     UNIT_FACTION = OnUnit,
+    UNIT_THREAT_LIST_UPDATE = OnUnit,
+    UNIT_TARGET = OnUnit,
+    PLAYER_TARGET_CHANGED = UpdateAllPlates,
+    GROUP_ROSTER_UPDATE = function()
+        UpdateMembers()
+        UpdateAllPlates()
+    end,
 }
 
 local frame = CreateFrame("Frame")
@@ -218,12 +338,22 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         DynamicDisplayNameplateDB = DynamicDisplayNameplateDB or {}
         settings = DynamicDisplayNameplateDB
         for _, option in ipairs(OPTIONS) do
-            if settings[option.key] == nil then settings[option.key] = true end
+            if settings[option.key] == nil then settings[option.key] = not option.off end
         end
         frame:UnregisterEvent("ADDON_LOADED")
         return
     end
     if PLATE_EVENTS[event] then return PLATE_EVENTS[event](arg1) end
+    if event == "PLAYER_ENTERING_WORLD" then
+        UpdateMembers()
+        local loaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
+        deficitPlatesLoaded = loaded ~= nil and loaded("DeficitPlates") and true or false
+        if deficitPlatesLoaded and settings.deficit and not warned.deficitPlates then
+            warned.deficitPlates = true
+            print(TAG .. "Deficit Plates is still enabled, so it keeps the health text. "
+                .. "Its feature is part of this addon now; disable it in the AddOns list.")
+        end
+    end
     Apply(event == "PLAYER_REGEN_DISABLED" or (event == "PLAYER_ENTERING_WORLD" and InCombatLockdown()))
 end)
 
@@ -254,6 +384,9 @@ local function Confirm(option)
     local plate = option.key == "enemies" and PLATES[1] or option.key == "friends" and PLATES[2]
     if not plate then
         Say(("%s: %s."):format(option.label, settings[option.key] and "on" or "off"))
+        if option.key == "deficit" and settings.deficit and deficitPlatesLoaded then
+            Say("Deficit Plates is still enabled, so it keeps the health text. Disable it in the AddOns list.")
+        end
     elseif settings[option.key] then
         Say(("%s plates now show only in combat."):format(plate.label))
     else
@@ -263,7 +396,11 @@ local function Confirm(option)
 end
 
 -- /ddn-<command> [on|off]: no argument toggles.
-local function MakeToggle(option)
+local function MakeToggle(key)
+    local option
+    for _, o in ipairs(OPTIONS) do
+        if o.key == key then option = o end
+    end
     return function(arg)
         arg = (arg or ""):lower():match("^%s*(.-)%s*$")
         local value
@@ -283,7 +420,16 @@ local function MakeToggle(option)
 end
 
 local function Status()
-    Say(InCombatLockdown() and "in combat lockdown" or "out of combat")
+    -- Also kept in the saved variables (written on /reload or logout), for
+    -- output too long to screenshot.
+    local lines = {}
+    settings.lastStatus = lines
+    local echo = print
+    local function print(line)
+        lines[#lines + 1] = line
+        echo(line)
+    end
+    print(TAG .. (InCombatLockdown() and "in combat lockdown" or "out of combat"))
     local managed = {}
     for _, plate in ipairs(PLATES) do
         local value = GetValue(plate.cvar)
@@ -305,15 +451,58 @@ local function Status()
         shown = shown + 1
         if IsFriend(unit) then friends = friends + 1 end
     end
-    print(("  plates shown: %d, friendly: %d"):format(shown, friends))
+    local blocked = 0
+    for _ in pairs(forbidden) do blocked = blocked + 1 end
+    print(("  plates shown: %d, friendly: %d, off limits to addons: %d"):format(shown, friends, blocked))
+    -- Whether the engaged check can see threat and targets on this client.
+    -- "unknown" counts plates where a secret value hid the answer.
+    local fighting, idle, unknown = 0, 0, 0
+    for unit in pairs(plates) do
+        if not IsFriend(unit) then
+            local ok, engaged = pcall(Engaged, unit)
+            if not ok or engaged == nil then
+                unknown = unknown + 1
+            elseif engaged then
+                fighting = fighting + 1
+            else
+                idle = idle + 1
+            end
+        end
+    end
+    print(("  enemy plates fighting your group: %d, not fighting: %d, unknown: %d"):format(fighting, idle, unknown))
+    local deficits = 0
+    for unit in pairs(plates) do
+        local text = deficitTexts[plates[unit].UnitFrame]
+        if text and ns.Deficit.Visible(text) == "shown" then deficits = deficits + 1 end
+    end
+    print(("  friendly plates with missing health: %d (UnitHealthMissing: %s, AbbreviateNumbers: %s, Deficit Plates loaded: %s)"):format(
+        deficits, UnitHealthMissing and "yes" or "no", AbbreviateNumbers and "yes" or "no",
+        deficitPlatesLoaded and "yes" or "no"))
+    -- Per plate, which unit checks this client answers and which it hides.
+    local function Show(v)
+        if issecretvalue and issecretvalue(v) then return "secret" end
+        return tostring(v)
+    end
+    local units = {}
+    for unit in pairs(plates) do units[#units + 1] = unit end
+    table.sort(units)
+    for _, unit in ipairs(units) do
+        print(("  %s: friend=%s player=%s party=%s raid=%s -> %s"):format(unit,
+            Show(UnitIsFriend("player", unit)), Show(UnitIsPlayer(unit)), Show(UnitInParty(unit)),
+            Show(UnitInRaid(unit)), IsFriend(unit) and "friendly" or "enemy"))
+    end
     print("  last error: " .. (lastError or "none"))
-    -- List every nameplateShow* CVar the client has, to spot renamed ones.
+    -- List the client's nameplate show, stacking and overlap CVars, to spot
+    -- renamed ones.
     local ok, commands = pcall(function() return C_Console.GetAllCommands() end)
     if not ok or type(commands) ~= "table" then return end
     local others = {}
     for _, info in ipairs(commands) do
         local name = info.command
-        if name and name:lower():find("^nameplateshow") and not managed[name] then
+        local lower = name and name:lower() or ""
+        local wanted = lower:find("^nameplate") and (lower:find("^nameplateshow")
+            or lower:find("motion") or lower:find("stack") or lower:find("overlap"))
+        if wanted and not managed[name] and name ~= MOTION_CVAR then
             local value = GetValue(name)
             if value ~= nil then others[#others + 1] = name .. "=" .. value end
         end
@@ -351,15 +540,21 @@ SlashCmdList.DDNHELP = Help
 SLASH_DDNOPTIONS1 = "/ddn-options"
 SlashCmdList.DDNOPTIONS = Options
 SLASH_DDNENEMIES1 = "/ddn-enemies"
-SlashCmdList.DDNENEMIES = MakeToggle(OPTIONS[1])
+SlashCmdList.DDNENEMIES = MakeToggle("enemies")
+SLASH_DDNENGAGED1 = "/ddn-engaged"
+SlashCmdList.DDNENGAGED = MakeToggle("engaged")
 SLASH_DDNFRIENDS1 = "/ddn-friends"
-SlashCmdList.DDNFRIENDS = MakeToggle(OPTIONS[2])
+SlashCmdList.DDNFRIENDS = MakeToggle("friends")
+SLASH_DDNGROUP1 = "/ddn-group"
+SlashCmdList.DDNGROUP = MakeToggle("groupOnly")
 SLASH_DDNFADEFULL1 = "/ddn-fadefull"
-SlashCmdList.DDNFADEFULL = MakeToggle(OPTIONS[3])
+SlashCmdList.DDNFADEFULL = MakeToggle("fadeFull")
 SLASH_DDNSHOWHURT1 = "/ddn-showhurt"
-SlashCmdList.DDNSHOWHURT = MakeToggle(OPTIONS[4])
+SlashCmdList.DDNSHOWHURT = MakeToggle("showHurt")
+SLASH_DDNDEFICIT1 = "/ddn-deficit"
+SlashCmdList.DDNDEFICIT = MakeToggle("deficit")
 SLASH_DDNSIDES1 = "/ddn-sides"
-SlashCmdList.DDNSIDES = MakeToggle(OPTIONS[5])
+SlashCmdList.DDNSIDES = MakeToggle("sides")
 SLASH_DDNSTATUS1 = "/ddn-status"
 SlashCmdList.DDNSTATUS = Status
 SLASH_DDNWATCH1 = "/ddn-watch"

@@ -14,39 +14,50 @@ Paste these into the project form at https://authors.curseforge.com/#/projects/c
 
 ## Summary
 
-Enemy and friendly player nameplates only while you're in combat.
+Nameplates only in combat, only for what matters: mobs fighting your group, your party's plates, and missing health for healers.
 
 ## Description
 
-Dynamic Display Nameplate shows enemy and friendly player nameplates when you enter combat and hides them when you leave. It's the "combat plates" behavior from Leatrix Plus, on its own, for World of Warcraft: Forever.
+Dynamic Display Nameplate decides when Blizzard's nameplates show, and which ones. It keeps Blizzard's look. For World of Warcraft: Forever.
 
 **How it works**
 
-- Entering combat turns nameplates on.
-- Leaving combat turns them off.
-- Logging in, reloading, or zoning out of combat turns them off.
+- Entering combat turns enemy and friendly player nameplates on; leaving combat turns them off.
+- Every switch is in the options panel: type `/ddn-options`, or Esc > Options > AddOns > Dynamic Display Nameplate. Each one has a short explanation and a chat command.
 
-Install it and it works. To change it, use these chat commands:
+**Options**
+
+- **Enemy plates only in combat** (on by default).
+- **Enemy plates only for mobs fighting your group** (off by default): hides enemy NPC plates unless the mob is your target, has someone in your group on its threat list, or is targeting one of you. Enemy players always show.
+- **Friendly player plates only in combat** (on by default).
+- **Friendly player plates only for your party or raid** (off by default).
+- **Fade friendly plates at full health** (on by default): faint in combat, hidden out of combat, solid as soon as they lose health.
+- **Show hurt friendly plates out of combat** (on by default).
+- **Missing health on friendly plates** (off by default): `-118`, or `-0` at full health, in place of Blizzard's health number. This used to be the Deficit Plates addon.
+- **Friendly plates on the left, enemy plates on the right** (on by default).
+
+**Commands**
 
 - `/ddn-help` lists the commands.
-- `/ddn-enemies [on|off]` sets whether enemy plates follow combat. On by default. When off, the addon leaves enemy plates alone.
-- `/ddn-friends [on|off]` sets whether friendly player plates follow combat. On by default. When off, the addon leaves friendly plates alone.
-- `/ddn-status` shows each nameplate setting, its current value, and what the addon last set it to.
-- `/ddn-watch` prints every game setting change until you run it again. Useful for bug reports.
+- `/ddn-options` opens the options panel.
+- `/ddn-enemies`, `/ddn-engaged`, `/ddn-friends`, `/ddn-group`, `/ddn-fadefull`, `/ddn-showhurt`, `/ddn-deficit`, `/ddn-sides` each take `on` or `off`; with no argument they toggle.
+- `/ddn-status` shows what the addon sees. Include it in bug reports.
+- `/ddn-watch` prints every game setting change until you run it again.
 
-With no argument, `/ddn-enemies` and `/ddn-friends` toggle. Settings are saved per account.
+Settings are saved per account.
 
 **Good to know**
 
-- If you press V (or Shift+V for friendly plates) to show nameplates outside combat, they will hide again at the end of your next fight.
-- The addon changes only the enemy and friendly player nameplate settings. Friendly NPC plates and "Always show nameplates" are left as you set them.
+- Inside dungeons and raids, Blizzard keeps friendly plates off limits to addons, so the friendly-plate options don't apply there. For missing health in a dungeon, set the party frames to show health lost.
+- Hidden plates still take up room when plates stack.
+- If you press V (or Shift+V for friendly plates) to show nameplates outside combat, they hide again at the end of your next fight.
 - If you uninstall it, nameplates stay off. Press V / Shift+V to turn them back on.
+- Using Deficit Plates? Turn on "Missing health on friendly plates" here and disable Deficit Plates.
 
 **Compatibility**
 
 - World of Warcraft: Forever (1.60.x)
-- Works alongside other nameplate addons. It only decides when nameplates are shown, not what they look like.
 
 **Source and issues**
 
-The code is on [GitHub](https://github.com/rubens-lopes/DynamicDisplayNameplate). If something goes wrong, open an issue there and include any error text the addon printed in chat.
+The code is on [GitHub](https://github.com/rubens-lopes/DynamicDisplayNameplate). If something goes wrong, open an issue there and include the `/ddn-status` output.

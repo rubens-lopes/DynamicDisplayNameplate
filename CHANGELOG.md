@@ -1,11 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.3.0-beta1
 
-- New options panel (`/ddn-options`, or Esc > Options > AddOns) with an explanation of each switch.
+- New options panel (`/ddn-options`, or Esc > Options > AddOns) with an explanation of each switch. It scrolls when it doesn't fit.
+- `/ddn-status` shows more: how each plate is classed, plates off limits to addons, missing-health checks, and the client's stacking settings when it lists them. Its output is also saved in the addon's saved variables, for output too long to screenshot.
+- New: enemy plates only for mobs fighting your group (`/ddn-engaged`). An enemy NPC's plate shows only while it's your target, has someone in your group on its threat list, or is targeting one of you. Enemy players always show. Off by default.
+- New: friendly player plates only for your party or raid (`/ddn-group`). Off by default.
+- New: missing health on friendly plates (`/ddn-deficit`), merged in from the Deficit Plates addon. Off by default. If Deficit Plates is still enabled, it keeps the health text until you disable it.
 - New: friendly plates at full health fade in combat and hide out of combat (`/ddn-fadefull`). On by default.
 - New: show hurt friendly plates out of combat (`/ddn-showhurt`). On by default.
-- New: friendly plates on the left, enemy plates on the right, with plates stacking instead of overlapping (`/ddn-sides`). On by default.
+- New: friendly plates on the left, enemy plates on the right (`/ddn-sides`). On by default. Plates also stack instead of overlapping on clients with the `nameplateMotion` setting; WoW Forever doesn't have it.
+- Inside dungeons and raids, Blizzard keeps friendly plates off limits to addons, so the friendly-plate options don't apply there. The party frames can show missing health instead.
 
 ## v0.2.0-beta1
 

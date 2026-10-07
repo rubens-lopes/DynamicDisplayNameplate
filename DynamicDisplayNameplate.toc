@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Dynamic Display Nameplate
-## Notes: Shows nameplates only in combat, hides friendly plates at full health, and keeps friendly plates left and enemy plates right. /ddn-options for settings.
+## Notes: Shows nameplates only in combat, can hide enemy plates not fighting your group, fades friendly plates at full health, shows their missing health, and keeps friendly plates left and enemy plates right. /ddn-options for settings.
 ## Author: Rubens Lopes
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1701381
@@ -8,5 +8,6 @@
 ## IconTexture: Interface\Icons\Ability_DualWield
 ## SavedVariables: DynamicDisplayNameplateDB
 
+Deficit.lua
 DynamicDisplayNameplate.lua
 Options.lua
