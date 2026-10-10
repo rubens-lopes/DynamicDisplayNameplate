@@ -46,6 +46,7 @@ local function Load(opts)
         return f
     end
     G.InCombatLockdown = function() return env.lockdown end
+    G.date = os.date
     local function get(name)
         if name == opts.missing then return nil end
         return env.values[name] or "0"
@@ -214,7 +215,7 @@ end)
 
 test("defines only its saved variable and slash commands as globals", function()
     local env = Load()
-    local stubs = { UnitInParty = 1, UnitInRaid = 1, STANDARD_TEXT_FONT = 1, UnitHealthMissing = 1, AbbreviateNumbers = 1, C_AddOns = 1, IsInRaid = 1, GetNumGroupMembers = 1, GetNumSubgroupMembers = 1, UnitIsPlayer = 1, UnitIsUnit = 1, UnitThreatSituation = 1, UnitPlayerOrPetInParty = 1, UnitPlayerOrPetInRaid = 1, C_NamePlate = 1, UnitIsFriend = 1, C_CurveUtil = 1, UnitHealthPercent = 1, C_Console = 1, CreateFrame = 1, InCombatLockdown = 1, C_CVar = 1, SetCVar = 1, GetCVar = 1, print = 1, SlashCmdList = 1 }
+    local stubs = { UnitInParty = 1, UnitInRaid = 1, STANDARD_TEXT_FONT = 1, UnitHealthMissing = 1, AbbreviateNumbers = 1, C_AddOns = 1, IsInRaid = 1, GetNumGroupMembers = 1, GetNumSubgroupMembers = 1, UnitIsPlayer = 1, UnitIsUnit = 1, UnitThreatSituation = 1, UnitPlayerOrPetInParty = 1, UnitPlayerOrPetInRaid = 1, C_NamePlate = 1, UnitIsFriend = 1, C_CurveUtil = 1, UnitHealthPercent = 1, C_Console = 1, CreateFrame = 1, InCombatLockdown = 1, date = 1, C_CVar = 1, SetCVar = 1, GetCVar = 1, print = 1, SlashCmdList = 1 }
     local names = {}
     for k in pairs(env.globals) do
         if not stubs[k] and k ~= "DynamicDisplayNameplateDB" and not k:match("^SLASH_DDN") then

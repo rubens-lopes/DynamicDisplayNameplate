@@ -421,15 +421,16 @@ end
 
 local function Status()
     -- Also kept in the saved variables (written on /reload or logout), for
-    -- output too long to screenshot.
+    -- output too long to screenshot. The run before is kept too, to compare.
     local lines = {}
+    settings.previousStatus = settings.lastStatus
     settings.lastStatus = lines
     local echo = print
     local function print(line)
         lines[#lines + 1] = line
         echo(line)
     end
-    print(TAG .. (InCombatLockdown() and "in combat lockdown" or "out of combat"))
+    print(TAG .. (InCombatLockdown() and "in combat lockdown" or "out of combat") .. " at " .. date("%H:%M:%S"))
     local managed = {}
     for _, plate in ipairs(PLATES) do
         local value = GetValue(plate.cvar)
@@ -486,10 +487,27 @@ local function Status()
     local units = {}
     for unit in pairs(plates) do units[#units + 1] = unit end
     table.sort(units)
+    -- How a frame is drawn: shown/visible, alpha, size and points, to tell a
+    -- plate we hid from one the client left blank.
+    local function Looks(f)
+        if not f then return "none" end
+        local ok, text = pcall(function()
+            local w, h = f:GetSize()
+            return ("shown=%s visible=%s alpha=%s size=%sx%s points=%s"):format(Show(f:IsShown()),
+                Show(f:IsVisible()), Show(f:GetAlpha()), Show(w), Show(h), Show(f:GetNumPoints()))
+        end)
+        return ok and text or ("error " .. tostring(text))
+    end
     for _, unit in ipairs(units) do
         print(("  %s: friend=%s player=%s party=%s raid=%s -> %s"):format(unit,
             Show(UnitIsFriend("player", unit)), Show(UnitIsPlayer(unit)), Show(UnitInParty(unit)),
             Show(UnitInRaid(unit)), IsFriend(unit) and "friendly" or "enemy"))
+        local plate = plates[unit]
+        local uf = plate.UnitFrame
+        print("    plate: " .. Looks(plate))
+        print(("    frame: %s%s"):format(Looks(uf), faded[uf] and " (faded by us)" or ""))
+        print("    health bar: " .. Looks(uf and uf.healthBar))
+        print("    name: " .. Looks(uf and uf.name))
     end
     print("  last error: " .. (lastError or "none"))
     -- List the client's nameplate show, stacking and overlap CVars, to spot
