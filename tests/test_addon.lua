@@ -86,7 +86,8 @@ local function Load(opts)
             function t:SetJustifyH(j) self.justify = j end
             return t
         end
-        local bar = { created = {} }
+        local bar = { created = {}, alpha = 1 }
+        function bar:SetAlpha(a) self.alpha = a end
         for _, key in ipairs({ "LeftText", "RightText", "TextString" }) do
             bar[key] = Text({ "Fonts\\BLIZZ.TTF", 9, "OUTLINE" })
         end
@@ -234,7 +235,7 @@ test("every slash command uses the /ddn- prefix", function()
             assert(v:match("^/ddn%-%l+$"), k .. " = " .. v)
         end
     end
-    eq(n, 12, "slash commands")
+    eq(n, 13, "slash commands")
 end)
 
 test("every option but engaged is on by default on a fresh install", function()
@@ -879,6 +880,72 @@ test("/ddn-options says so when the panel isn't loaded", function()
     assert(env.printed[#env.printed]:find("options panel", 1, true), env.printed[#env.printed])
 end)
 
+
+test("/ddn-friends off with the default options leaves friendly plates alone", function()
+    local env = Load()
+    env.slash("/ddn-friends off")
+    env.writes = {}
+    env.fire("PLAYER_REGEN_DISABLED")
+    env.fire("PLAYER_REGEN_ENABLED")
+    env.fire("PLAYER_ENTERING_WORLD", false, true)
+    assert(not writes(env):find("FriendlyPlayers", 1, true), writes(env))
+end)
+
+test("names: a full-health friend shows only the name, the bar returns once hurt", function()
+    local env = Load({ saved = Old({ names = true, fadeFull = true }) })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    eq(writes(env), "nameplateShowEnemies=0,nameplateShowFriendlyPlayers=1,"
+        .. "nameplateUseClassColorForFriendlyPlayerUnitNames=1", "plates on out of combat, class colour on")
+    local uf = env.addPlate("nameplate1", true, "full")
+    eq(uf.alpha, 1, "plate out of combat")
+    eq(uf.healthBar.alpha, 0, "bar out of combat")
+    env.fire("PLAYER_REGEN_DISABLED")
+    eq(uf.alpha, 1, "plate in combat")
+    eq(uf.healthBar.alpha, 0, "bar in combat")
+    env.units.nameplate1.health = "hurt"
+    env.fire("UNIT_HEALTH", "nameplate1")
+    eq(uf.healthBar.alpha, 1, "bar once hurt")
+end)
+
+test("names never touches enemy bars and still hides group-only plates", function()
+    local env = Load({ saved = Old({ names = true, groupOnly = true }) })
+    env.fire("PLAYER_REGEN_DISABLED")
+    local enemy = env.addPlate("nameplate1", false, "full")
+    eq(enemy.healthBar.alpha, 1, "enemy bar")
+    local stranger = env.addPlate("nameplate2", true, "full")
+    env.units.nameplate2.player = true
+    env.fire("UNIT_FACTION", "nameplate2")
+    eq(stranger.alpha, 0, "friendly player outside the group")
+end)
+
+test("turning names off brings the bar back and the old class colour value", function()
+    local env = Load({ saved = Old({ names = true }), values = { nameplateUseClassColorForFriendlyPlayerUnitNames = "0" } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    local uf = env.addPlate("nameplate1", true, "full")
+    env.writes = {}
+    env.slash("/ddn-names off")
+    eq(uf.healthBar.alpha, 1, "bar after off")
+    eq(env.globals.DynamicDisplayNameplateDB.classColorBefore, nil, "old value cleared")
+    assert(writes(env):find("nameplateUseClassColorForFriendlyPlayerUnitNames=0", 1, true), writes(env))
+end)
+
+test("names leaves class colour alone when it was already on", function()
+    local env = Load({ saved = Old({ names = true }), values = { nameplateUseClassColorForFriendlyPlayerUnitNames = "1" } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    env.slash("/ddn-names off")
+    assert(not writes(env):find("ClassColor", 1, true), writes(env))
+end)
+
+test("names turns Blizzard's name-only mode off and puts it back", function()
+    local env = Load({ saved = Old({ names = true }), values = { nameplateShowOnlyNameForFriendlyPlayerUnits = "1" } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    assert(writes(env):find("nameplateShowOnlyNameForFriendlyPlayerUnits=0", 1, true), writes(env))
+    eq(env.globals.DynamicDisplayNameplateDB.onlyNameBefore, "1", "old value saved")
+    env.writes = {}
+    env.slash("/ddn-names off")
+    assert(writes(env):find("nameplateShowOnlyNameForFriendlyPlayerUnits=1", 1, true), writes(env))
+    eq(env.globals.DynamicDisplayNameplateDB.onlyNameBefore, nil, "old value cleared")
+end)
 local failed = 0
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)

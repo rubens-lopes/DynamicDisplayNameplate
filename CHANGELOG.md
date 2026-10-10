@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.0-beta1
+
+- Fix: `/ddn-friends off` didn't stop the addon turning friendly plates on. "Show hurt friendly plates out of combat" kept switching them on, so they came back every fight. Now the addon leaves friendly plates alone while `/ddn-friends` is off.
+- New: only the name of friendly players at full health (`/ddn-names`). Friendly plates at full health show just the class-coloured name, in and out of combat, and the health bar appears as soon as they lose health. It turns off Blizzard's own "only names" setting for friendly players while on, since that one hides the bar even when they're hurt, and puts it back when turned off. Off by default.
+- `/ddn-status` prints the time, how each plate is drawn, and keeps the run before alongside the latest in the saved variables.
+
 ## v0.3.0-beta1
 
 - New options panel (`/ddn-options`, or Esc > Options > AddOns) with an explanation of each switch. It scrolls when it doesn't fit.

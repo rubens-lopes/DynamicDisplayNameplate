@@ -14,6 +14,10 @@ local PLATES = {
 }
 -- 1 stacks plates, 0 lets them overlap.
 local MOTION_CVAR = "nameplateMotion"
+-- Blizzard's own switch for class-coloured friendly player names.
+local CLASS_COLOR_CVAR = "nameplateUseClassColorForFriendlyPlayerUnitNames"
+-- Blizzard's own name-only mode for friendly players, bar hidden even when hurt.
+local ONLY_NAME_CVAR = "nameplateShowOnlyNameForFriendlyPlayerUnits"
 -- Alpha of a full-health friendly plate in combat with the fade option; out
 -- of combat it's 0. Fixed for now; meant to become a slider.
 local FADED_ALPHA = 0.3
@@ -42,7 +46,13 @@ local OPTIONS = {
           .. "It turns solid as soon as they lose health. Hidden plates still take up room when plates stack." },
     { key = "showHurt", command = "showhurt", label = "Show hurt friendly plates out of combat",
       help = "Keeps friendly plates switched on outside combat, so anyone below full health still shows. "
-          .. "Players at full health stay hidden out of combat while the fade option or the friendly combat option is on." },
+          .. "Players at full health stay hidden out of combat. Works with the friendly combat option; "
+          .. "with that off, friendly plates are left to you." },
+    { key = "names", command = "names", label = "Only the name of friendly players at full health", off = true,
+      help = "In place of fading or hiding them, friendly plates at full health show just the name, in class colour, "
+          .. "in and out of combat. The health bar appears as soon as they lose health. With the friendly combat option "
+          .. "on, this keeps friendly plates switched on outside combat. Turns off Blizzard's own name-only setting, "
+          .. "which hides the bar even when they're hurt, and puts it back when you turn this off." },
     { key = "deficit", command = "deficit", label = "Missing health on friendly plates", off = true,
       help = "Friendly plates show how much health is missing (-0 at full health) in place of Blizzard's health number. "
           .. "Inside dungeons and raids Blizzard keeps friendly plates off limits to addons; there, the party frames "
@@ -68,6 +78,8 @@ local forbidden = {}
 -- Blizzard UnitFrames we moved or faded. Weak keys: Blizzard reuses them.
 local moved = setmetatable({}, { __mode = "k" })
 local faded = setmetatable({}, { __mode = "k" })
+-- Health bars we faded to leave only the name, same weak keys.
+local barFaded = setmetatable({}, { __mode = "k" })
 -- Our missing-health text per Blizzard UnitFrame, same weak keys.
 local deficitTexts = setmetatable({}, { __mode = "k" })
 -- The old Deficit Plates addon, if still enabled, owns the health text.
@@ -98,27 +110,38 @@ end
 
 local function SetPlates(cvar, show) SetValue(cvar, show and "1" or "0") end
 
--- Hurt friends need the plates on out of combat; otherwise they follow combat
--- when managed. nil leaves the setting alone.
+-- nil leaves the setting alone: friendly plates are managed only while the
+-- friendly combat option is on. Hurt friends and names need them on out of
+-- combat too.
 local function FriendsWanted(combat)
-    if settings.showHurt then return true end
-    if settings.friends then return combat end
+    if not settings.friends then return end
+    if settings.showHurt or settings.names then return true end
+    return combat
 end
 
--- Stacking on while sides is on. The old value is saved so turning sides off,
--- even after a reload, puts it back. WoW Forever has no nameplateMotion and
--- its replacement isn't known yet, so there it's skipped without a warning.
-local function ApplyMotion()
-    if InCombatLockdown() or GetValue(MOTION_CVAR) == nil then return end
-    if settings.sides then
-        local current = GetValue(MOTION_CVAR)
-        if current == "1" then return end
-        if current ~= nil and settings.motionBefore == nil then settings.motionBefore = current end
-        SetValue(MOTION_CVAR, "1")
-    elseif settings.motionBefore ~= nil then
-        SetValue(MOTION_CVAR, settings.motionBefore)
-        settings.motionBefore = nil
+-- A game setting held at value while an option is on. The old value is saved
+-- under beforeKey so turning the option off, even after a reload, puts it
+-- back. A setting the client lacks is skipped without a warning.
+local function Hold(on, cvar, value, beforeKey)
+    if InCombatLockdown() or GetValue(cvar) == nil then return end
+    if on then
+        local current = GetValue(cvar)
+        if current == value then return end
+        if settings[beforeKey] == nil then settings[beforeKey] = current end
+        SetValue(cvar, value)
+    elseif settings[beforeKey] ~= nil then
+        SetValue(cvar, settings[beforeKey])
+        settings[beforeKey] = nil
     end
+end
+
+-- Stacking on while sides is on (WoW Forever has no nameplateMotion). While
+-- names is on, class colour on and Blizzard's name-only mode off, since that
+-- one hides the bar of hurt friends too.
+local function ApplyHeld()
+    Hold(settings.sides, MOTION_CVAR, "1", "motionBefore")
+    Hold(settings.names, CLASS_COLOR_CVAR, "1", "classColorBefore")
+    Hold(settings.names, ONLY_NAME_CVAR, "0", "onlyNameBefore")
 end
 
 -- Unit state can be secret on this client. Comparing a secret raises, so
@@ -231,8 +254,12 @@ local function Place(plate, uf, friend)
     end
 end
 
+-- With the names option, a full-health friend's health bar fades out and its
+-- name stays, in place of the whole plate fading.
 local function Fade(uf, unit, friend, hide)
-    local atFull = friend and FullHealthTarget()
+    local bar = uf.HealthBarsContainer or uf.healthBar
+    local namesOnly = friend and settings.names and bar and not hide
+    local atFull = friend and not namesOnly and FullHealthTarget()
     if hide then
         uf:SetAlpha(0)
         faded[uf] = true
@@ -242,6 +269,14 @@ local function Fade(uf, unit, friend, hide)
     elseif faded[uf] then
         uf:SetAlpha(1)
         faded[uf] = nil
+    end
+    if not bar then return end
+    if namesOnly then
+        bar:SetAlpha(FullHealthAlpha(unit, 0))
+        barFaded[bar] = true
+    elseif barFaded[bar] then
+        bar:SetAlpha(1)
+        barFaded[bar] = nil
     end
 end
 
@@ -285,7 +320,7 @@ local function Apply(combat)
     if settings.enemies then SetPlates(PLATES[1].cvar, combat) end
     local friends = FriendsWanted(combat)
     if friends ~= nil then SetPlates(PLATES[2].cvar, friends) end
-    ApplyMotion()
+    ApplyHeld()
     UpdateAllPlates()
 end
 
@@ -444,9 +479,11 @@ local function Status()
             print(("  %s: %s"):format(option.label, settings[option.key] and "on" or "off"))
         end
     end
-    local motion = GetValue(MOTION_CVAR)
-    print(("  %s = %s (addon last wrote %s)"):format(MOTION_CVAR,
-        motion == nil and "missing" or motion, lastWrite[MOTION_CVAR] or "nothing"))
+    for _, cvar in ipairs({ MOTION_CVAR, CLASS_COLOR_CVAR, ONLY_NAME_CVAR }) do
+        local value = GetValue(cvar)
+        print(("  %s = %s (addon last wrote %s)"):format(cvar,
+            value == nil and "missing" or value, lastWrite[cvar] or "nothing"))
+    end
     local shown, friends = 0, 0
     for unit in pairs(plates) do
         shown = shown + 1
@@ -520,7 +557,7 @@ local function Status()
         local lower = name and name:lower() or ""
         local wanted = lower:find("^nameplate") and (lower:find("^nameplateshow")
             or lower:find("motion") or lower:find("stack") or lower:find("overlap"))
-        if wanted and not managed[name] and name ~= MOTION_CVAR then
+        if wanted and not managed[name] and name ~= MOTION_CVAR and name ~= ONLY_NAME_CVAR then
             local value = GetValue(name)
             if value ~= nil then others[#others + 1] = name .. "=" .. value end
         end
@@ -569,6 +606,8 @@ SLASH_DDNFADEFULL1 = "/ddn-fadefull"
 SlashCmdList.DDNFADEFULL = MakeToggle("fadeFull")
 SLASH_DDNSHOWHURT1 = "/ddn-showhurt"
 SlashCmdList.DDNSHOWHURT = MakeToggle("showHurt")
+SLASH_DDNNAMES1 = "/ddn-names"
+SlashCmdList.DDNNAMES = MakeToggle("names")
 SLASH_DDNDEFICIT1 = "/ddn-deficit"
 SlashCmdList.DDNDEFICIT = MakeToggle("deficit")
 SLASH_DDNSIDES1 = "/ddn-sides"
