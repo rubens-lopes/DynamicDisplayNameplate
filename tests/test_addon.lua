@@ -4,6 +4,57 @@
 local ADDON_FILES = { "Deficit.lua", "DynamicDisplayNameplate.lua" }
 local ADDON_NAME = "DynamicDisplayNameplate"
 
+-- Loads Options.lua with Blizzard's settings page and menus stubbed. What it
+-- builds lands in env.options: the page's headings and checkboxes, the last
+-- quick menu, and the settings told to read their value again.
+local function LoadOptions(env, G)
+    local ui = { headings = {}, checkboxes = {}, updates = {} }
+    env.options = ui
+    G.Settings = {
+        VarType = { Boolean = "boolean" },
+        RegisterVerticalLayoutCategory = function(name)
+            local layout = { AddInitializer = function(_, heading) table.insert(ui.headings, heading) end }
+            return { name = name, GetID = function() return 7 end }, layout
+        end,
+        RegisterProxySetting = function(_, variable, _, label, default, get, set)
+            local setting = { variable = variable, label = label, default = default }
+            function setting:GetValue() return get() end
+            function setting:SetValue(value) set(value) end
+            function setting:NotifyUpdate() table.insert(ui.updates, self.variable) end
+            return setting
+        end,
+        CreateCheckbox = function(_, setting, tooltip)
+            table.insert(ui.checkboxes, { setting = setting, tooltip = tooltip })
+        end,
+        RegisterAddOnCategory = function(category) ui.category = category end,
+        OpenToCategory = function(id) ui.opened = id end,
+    }
+    G.CreateSettingsListSectionHeaderInitializer = function(name) return name end
+    G.C_Timer = { After = function(_, fn) fn() end }
+    G.GameTooltip = {}
+    G.GameTooltip_SetTitle = function() end
+    G.GameTooltip_AddNormalLine = function() end
+    G.MenuUtil = { CreateContextMenu = function(owner, generator)
+        local menu = { items = {} }
+        local function Add(item)
+            table.insert(menu.items, item)
+            function item:SetTooltip(fn) self.tooltip = fn end
+            return item
+        end
+        function menu:CreateTitle(text) return Add({ kind = "title", text = text }) end
+        function menu:CreateCheckbox(text, isSelected, onSelect)
+            return Add({ kind = "checkbox", text = text, IsSelected = isSelected, Click = onSelect })
+        end
+        function menu:CreateDivider() return Add({ kind = "divider" }) end
+        function menu:CreateButton(text, onClick) return Add({ kind = "button", text = text, Click = onClick }) end
+        generator(owner, menu)
+        ui.menu = menu
+    end }
+    local chunk = assert(loadfile("Options.lua"))
+    setfenv(chunk, G)
+    chunk(ADDON_NAME, env.ns)
+end
+
 -- opts.lockdown   InCombatLockdown() result (default false)
 -- opts.noCCVar    leave C_CVar undefined so the addon must use global SetCVar
 -- opts.setError   make every CVar write raise this error
@@ -12,6 +63,7 @@ local ADDON_NAME = "DynamicDisplayNameplate"
 -- opts.missing    CVar name the client doesn't have (GetCVar returns nil)
 -- opts.console    CVar names C_Console.GetAllCommands() reports (default: none, API absent)
 -- opts.values     starting CVar values (anything else reads "0")
+-- opts.options    also load Options.lua
 local function Load(opts)
     opts = opts or {}
     local env = { writes = {}, printed = {}, lockdown = opts.lockdown or false, values = opts.values or {} }
@@ -159,6 +211,8 @@ local function Load(opts)
         setfenv(chunk, G)
         chunk(ADDON_NAME, ns)
     end
+    env.ns = ns
+    if opts.options then LoadOptions(env, G) end
 
     env.loaded = true
     env.frame = frame
@@ -880,6 +934,65 @@ test("/ddn-options says so when the panel isn't loaded", function()
     assert(env.printed[#env.printed]:find("options panel", 1, true), env.printed[#env.printed])
 end)
 
+
+test("the options page has a checkbox per switch, under its headings", function()
+    local env = Load({ options = true })
+    local ui = env.options
+    eq(#ui.checkboxes, #env.ns.OPTIONS, "checkboxes")
+    eq(table.concat(ui.headings, "|"), "Enemy plates|Friendly plates|Friends at full health|Layout", "headings")
+    local engaged = ui.checkboxes[2]
+    eq(engaged.setting.label, "Only mobs fighting your group", "label")
+    eq(engaged.setting.default, false, "engaged off by default")
+    eq(engaged.tooltip:find("/ddn-engaged", 1, true) ~= nil, true, "command in the tooltip")
+    eq(ui.checkboxes[1].setting:GetValue(), true, "enemies on")
+end)
+
+test("a checkbox on the options page flips its switch", function()
+    local env = Load({ options = true })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    env.writes = {}
+    env.options.checkboxes[1].setting:SetValue(false)
+    eq(env.globals.DynamicDisplayNameplateDB.enemies, false, "saved")
+    env.fire("PLAYER_REGEN_DISABLED")
+    assert(not writes(env):find("nameplateShowEnemies", 1, true), writes(env))
+end)
+
+test("a /ddn- command refreshes the options page", function()
+    local env = Load({ options = true })
+    env.slash("/ddn-engaged on")
+    eq(env.options.updates[#env.options.updates], "DYNAMIC_DISPLAY_NAMEPLATE_ENGAGED", "setting refreshed")
+end)
+
+test("the minimap addon button opens a quick menu of the switches, under their headings", function()
+    local env = Load({ options = true })
+    env.globals.DynamicDisplayNameplate_OnAddonCompartmentClick("DynamicDisplayNameplate", "LeftButton")
+    local menu = env.options.menu
+    eq(menu.items[1].kind, "title", "title first")
+    local boxes, titles = {}, {}
+    for _, item in ipairs(menu.items) do
+        if item.kind == "checkbox" then
+            boxes[#boxes + 1] = item
+            item.tooltip(env.globals.GameTooltip)
+        elseif item.kind == "title" then
+            titles[#titles + 1] = item.text
+        end
+    end
+    eq(#boxes, #env.ns.OPTIONS, "checkboxes")
+    eq(table.concat(titles, "|"), "Dynamic Display Nameplate|Enemy plates|Friendly plates|Friends at full health|Layout", "titles")
+    eq(boxes[2].IsSelected(), false, "engaged off")
+    boxes[2].Click()
+    eq(boxes[2].IsSelected(), true, "engaged on")
+    eq(env.globals.DynamicDisplayNameplateDB.engaged, true, "saved")
+    menu.items[#menu.items].Click()
+    eq(env.options.opened, 7, "options page opened")
+end)
+
+test("/ddn-help lists the commands under their headings", function()
+    local env = Load()
+    env.slash("/ddn-help")
+    local out = table.concat(env.printed, "\n")
+    assert(out:find("Friends at full health:\n    /ddn-fadefull [on|off] - fade them (now on)", 1, true), out)
+end)
 
 test("/ddn-friends off with the default options leaves friendly plates alone", function()
     local env = Load()

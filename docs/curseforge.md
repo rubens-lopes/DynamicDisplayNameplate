@@ -23,7 +23,8 @@ Dynamic Display Nameplate decides when Blizzard's nameplates show, and which one
 **How it works**
 
 - Entering combat turns enemy and friendly player nameplates on; leaving combat turns them off.
-- Every switch is in the options panel: type `/ddn-options`, or Esc > Options > AddOns > Dynamic Display Nameplate. Each one has a short explanation and a chat command.
+- Every switch is in the options panel: type `/ddn-options`, or Esc > Options > AddOns > Dynamic Display Nameplate. Switches are grouped under headings; hover one for what it does and its chat command.
+- For a quick change, click the addons button on the minimap, then Dynamic Display Nameplate.
 
 **Options**
 

@@ -7,5 +7,5 @@ manual-changelog:
 ignore:
   - README.md
   - docs
-  - media
+  - media/logo.png
   - tests

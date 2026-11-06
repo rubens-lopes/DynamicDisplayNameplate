@@ -5,8 +5,11 @@
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1701381
 ## Category: Combat
-## IconTexture: Interface\Icons\Ability_DualWield
+## IconTexture: Interface\AddOns\DynamicDisplayNameplate\media\icon
 ## SavedVariables: DynamicDisplayNameplateDB
+## AddonCompartmentFunc: DynamicDisplayNameplate_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: DynamicDisplayNameplate_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: DynamicDisplayNameplate_OnAddonCompartmentLeave
 
 Deficit.lua
 DynamicDisplayNameplate.lua

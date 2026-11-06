@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.0
+
+- New options panel, in the same style as the game's own: the switches are grouped under headings (enemy plates, friendly plates, friends at full health, layout), hover one to see what it does, and Defaults puts them all back.
+- Quick menu: click the addons button on the minimap, then Dynamic Display Nameplate, to turn switches on or off.
+- New icon in the AddOns list and on the addons button.
+- Checked against the current WoW Forever client (1.60.1).
+
 ## v0.3.1
 
 - Fix: `/ddn-friends off` didn't stop the addon turning friendly plates on. "Show hurt friendly plates out of combat" kept switching them on, so they came back every fight. Now the addon leaves friendly plates alone while `/ddn-friends` is off.

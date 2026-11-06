@@ -3,6 +3,9 @@ max_line_length = false
 exclude_files = { ".release" }
 
 globals = {
+    "DynamicDisplayNameplate_OnAddonCompartmentClick",
+    "DynamicDisplayNameplate_OnAddonCompartmentEnter",
+    "DynamicDisplayNameplate_OnAddonCompartmentLeave",
     "DynamicDisplayNameplateDB",
     "SLASH_DDNDEFICIT1",
     "SLASH_DDNENEMIES1",
@@ -22,21 +25,26 @@ globals = {
 
 read_globals = {
     "AbbreviateNumbers",
+    "AddonCompartmentFrame",
     "C_AddOns",
     "C_Console",
     "C_CurveUtil",
     "C_CVar",
     "C_NamePlate",
+    "C_Timer",
     "CreateFrame",
+    "CreateSettingsListSectionHeaderInitializer",
     "date",
+    "GameTooltip",
+    "GameTooltip_AddNormalLine",
+    "GameTooltip_SetTitle",
     "GetCVar",
     "GetNumGroupMembers",
     "GetNumSubgroupMembers",
     "InCombatLockdown",
     "IsAddOnLoaded",
-    "InterfaceOptions_AddCategory",
-    "InterfaceOptionsFrame_OpenToCategory",
     "IsInRaid",
+    "MenuUtil",
     "issecretvalue",
     "SetCVar",
     "Settings",

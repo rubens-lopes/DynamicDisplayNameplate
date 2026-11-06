@@ -27,41 +27,49 @@ local TITLE = "Dynamic Display Nameplate"
 local TAG = "|cff33ccff" .. TITLE .. ":|r "
 
 -- Every saved switch, in the order the options panel shows them. All start on
--- unless marked off = true.
+-- unless marked off = true. section starts a new heading on the panel.
 local OPTIONS = {
-    { key = "enemies", command = "enemies", label = "Enemy plates only in combat",
+    { key = "enemies", command = "enemies", section = "Enemy plates", label = "Enemy plates only in combat",
       help = "Turns enemy nameplates on when you enter combat and off when you leave it. "
           .. "Turn this off to leave them alone; V shows and hides them as usual." },
-    { key = "engaged", command = "engaged", label = "Enemy plates only for mobs fighting your group", off = true,
+    { key = "engaged", command = "engaged", label = "Only mobs fighting your group", off = true,
       help = "Hides the plate of any enemy NPC that isn't your target, has nobody in your group on its threat list "
           .. "and isn't targeting one of you. Enemy players always show. Hidden plates still take up room when plates stack." },
-    { key = "friends", command = "friends", label = "Friendly player plates only in combat",
+    { key = "friends", command = "friends", section = "Friendly plates", label = "Friendly plates only in combat",
       help = "Turns friendly player nameplates on when you enter combat and off when you leave it. "
           .. "Turn this off to leave them alone; Shift+V shows and hides them as usual." },
-    { key = "groupOnly", command = "group", label = "Friendly player plates only for your party or raid", off = true,
+    { key = "groupOnly", command = "group", label = "Only your party or raid", off = true,
       help = "Hides the plate of any friendly player who isn't in your party or raid, so solo you see none. "
           .. "Friendly NPCs aren't affected. Hidden plates still take up room when plates stack." },
-    { key = "fadeFull", command = "fadefull", label = "Fade friendly plates at full health",
-      help = "While a friendly player is at full health, their plate is faint in combat and hidden out of combat. "
-          .. "It turns solid as soon as they lose health. Hidden plates still take up room when plates stack." },
-    { key = "showHurt", command = "showhurt", label = "Show hurt friendly plates out of combat",
+    { key = "showHurt", command = "showhurt", label = "Hurt friends show out of combat",
       help = "Keeps friendly plates switched on outside combat, so anyone below full health still shows. "
           .. "Players at full health stay hidden out of combat. Works with the friendly combat option; "
           .. "with that off, friendly plates are left to you." },
-    { key = "names", command = "names", label = "Only the name of friendly players at full health", off = true,
+    { key = "deficit", command = "deficit", label = "Show missing health", off = true,
+      help = "Friendly plates show how much health is missing (-0 at full health) in place of Blizzard's health number. "
+          .. "Inside dungeons and raids Blizzard keeps friendly plates off limits to addons; there, the party frames "
+          .. "can show missing health instead. This used to be the Deficit Plates addon; disable that one." },
+    { key = "fadeFull", command = "fadefull", section = "Friends at full health", label = "Fade them",
+      help = "While a friendly player is at full health, their plate is faint in combat and hidden out of combat. "
+          .. "It turns solid as soon as they lose health. Hidden plates still take up room when plates stack." },
+    { key = "names", command = "names", label = "Show only their name", off = true,
       help = "In place of fading or hiding them, friendly plates at full health show just the name, in class colour, "
           .. "in and out of combat. The health bar appears as soon as they lose health. With the friendly combat option "
           .. "on, this keeps friendly plates switched on outside combat. Turns off Blizzard's own name-only setting, "
           .. "which hides the bar even when they're hurt, and puts it back when you turn this off." },
-    { key = "deficit", command = "deficit", label = "Missing health on friendly plates", off = true,
-      help = "Friendly plates show how much health is missing (-0 at full health) in place of Blizzard's health number. "
-          .. "Inside dungeons and raids Blizzard keeps friendly plates off limits to addons; there, the party frames "
-          .. "can show missing health instead. This used to be the Deficit Plates addon; disable that one." },
-    { key = "sides", command = "sides", label = "Friendly plates on the left, enemy plates on the right",
+    { key = "sides", command = "sides", section = "Layout", label = "Friendly left, enemy right",
       help = "Each plate shifts sideways: friendly ones to the left of the character, enemy ones to the right, "
           .. "so the two groups don't mix. On clients with the nameplateMotion setting, plates also stack "
           .. "instead of overlapping, and turning this off puts that setting back." },
 }
+
+-- Labels are short and read under their heading, so chat output names the
+-- heading too: heading is the section each option sits under.
+local heading
+for _, option in ipairs(OPTIONS) do
+    heading = option.section or heading
+    option.heading = heading
+end
 
 -- Replaced by the saved table on ADDON_LOADED.
 local settings = {}
@@ -401,6 +409,11 @@ function ns.Get(key) return settings[key] end
 function ns.Set(key, value)
     settings[key] = value
     Apply(inCombat)
+    -- Options.lua: the panel shows the new value, whoever set it.
+    if ns.OnSet then
+        local ok, err = pcall(ns.OnSet, key)
+        if not ok then Warn("update the options panel", tostring(err)) end
+    end
 end
 
 local function Help()
@@ -410,7 +423,8 @@ local function Help()
     print("  /ddn-status - show the nameplate settings the addon sees")
     print("  /ddn-watch - print every game setting change until run again (troubleshooting)")
     for _, option in ipairs(OPTIONS) do
-        print(("  /ddn-%s [on|off] - %s (now %s)"):format(
+        if option.section then print("  " .. option.section .. ":") end
+        print(("    /ddn-%s [on|off] - %s (now %s)"):format(
             option.command, option.label:lower(), settings[option.key] and "on" or "off"))
     end
 end
@@ -418,7 +432,7 @@ end
 local function Confirm(option)
     local plate = option.key == "enemies" and PLATES[1] or option.key == "friends" and PLATES[2]
     if not plate then
-        Say(("%s: %s."):format(option.label, settings[option.key] and "on" or "off"))
+        Say(("%s, %s: %s."):format(option.heading, option.label:lower(), settings[option.key] and "on" or "off"))
         if option.key == "deficit" and settings.deficit and deficitPlatesLoaded then
             Say("Deficit Plates is still enabled, so it keeps the health text. Disable it in the AddOns list.")
         end
@@ -476,7 +490,7 @@ local function Status()
     end
     for _, option in ipairs(OPTIONS) do
         if option.key ~= "enemies" and option.key ~= "friends" then
-            print(("  %s: %s"):format(option.label, settings[option.key] and "on" or "off"))
+            print(("  %s, %s: %s"):format(option.heading, option.label:lower(), settings[option.key] and "on" or "off"))
         end
     end
     for _, cvar in ipairs({ MOTION_CVAR, CLASS_COLOR_CVAR, ONLY_NAME_CVAR }) do
@@ -589,6 +603,7 @@ local function Options()
     if ns.OpenOptions then return ns.OpenOptions() end
     Say("the options panel isn't available on this client. Use /ddn-help for the commands.")
 end
+ns.ShowOptions = Options
 
 SLASH_DDNHELP1 = "/ddn-help"
 SlashCmdList.DDNHELP = Help

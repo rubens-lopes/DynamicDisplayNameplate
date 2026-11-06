@@ -10,7 +10,9 @@ If you press V (or Shift+V for friendly plates) to show nameplates outside comba
 
 ## Options
 
-Open the panel with `/ddn-options`, or Esc > Options > AddOns > Dynamic Display Nameplate. Every switch starts on except the engaged, group, names and missing-health ones. The panel scrolls if it doesn't fit.
+Open the panel with `/ddn-options`, or Esc > Options > AddOns > Dynamic Display Nameplate. The switches are grouped under headings (enemy plates, friendly plates, friends at full health, layout); hover one to see what it does, and Defaults puts them all back. Every switch starts on except the engaged, group, names and missing-health ones.
+
+For a quick change, click the addons button on the minimap, then Dynamic Display Nameplate: a menu with every switch.
 
 - **Enemy plates only in combat**: turns enemy plates on when you enter combat and off when you leave it.
 - **Enemy plates only for mobs fighting your group**: hides the plate of any enemy NPC that isn't your target, has nobody in your group (you, party or raid members, and pets) on its threat list, and isn't targeting one of you. Enemy players always show. Off by default. Hidden plates still take up room when plates stack.
