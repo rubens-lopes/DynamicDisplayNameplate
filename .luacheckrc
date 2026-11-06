@@ -1,6 +1,7 @@
 std = "lua51"
 max_line_length = false
 exclude_files = { ".release" }
+files["tests/"] = { self = false }
 
 globals = {
     "DynamicDisplayNameplate_OnAddonCompartmentClick",
