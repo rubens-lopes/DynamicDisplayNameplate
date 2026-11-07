@@ -14,13 +14,19 @@ local PLATES = {
 }
 -- 1 stacks plates, 0 lets them overlap.
 local MOTION_CVAR = "nameplateMotion"
+-- Blizzard's own plate stacking, one bit per side (Enum.NamePlateStackType).
+-- before is the saved key holding that bit's old value while sides holds it on.
+local STACK_CVAR = "nameplateStackingTypes"
+local STACK_BITS = {
+    { name = "enemy", index = Enum and Enum.NamePlateStackType and Enum.NamePlateStackType.Enemy or 1,
+      before = "stackEnemyBefore" },
+    { name = "friendly", index = Enum and Enum.NamePlateStackType and Enum.NamePlateStackType.Friendly or 2,
+      before = "stackFriendlyBefore" },
+}
 -- Blizzard's own switch for class-coloured friendly player names.
 local CLASS_COLOR_CVAR = "nameplateUseClassColorForFriendlyPlayerUnitNames"
 -- Blizzard's own name-only mode for friendly players, bar hidden even when hurt.
 local ONLY_NAME_CVAR = "nameplateShowOnlyNameForFriendlyPlayerUnits"
--- Alpha of a full-health friendly plate in combat with the fade option; out
--- of combat it's 0. Fixed for now; meant to become a slider.
-local FADED_ALPHA = 0.3
 -- How far plates move sideways with the sides option, in UI units.
 local SIDE_OFFSET = 60
 local TITLE = "Dynamic Display Nameplate"
@@ -34,24 +40,27 @@ local OPTIONS = {
           .. "Turn this off to leave them alone; V shows and hides them as usual." },
     { key = "engaged", command = "engaged", label = "Only mobs fighting your group", off = true,
       help = "Hides the plate of any enemy NPC that isn't your target, has nobody in your group on its threat list "
-          .. "and isn't targeting one of you. Enemy players always show. Hidden plates still take up room when plates stack." },
+          .. "and isn't targeting one of you. Enemy players always show." },
     { key = "friends", command = "friends", section = "Friendly plates", label = "Friendly plates only in combat",
       help = "Turns friendly player nameplates on when you enter combat and off when you leave it. "
           .. "Turn this off to leave them alone; Shift+V shows and hides them as usual." },
     { key = "groupOnly", command = "group", label = "Only your party or raid", off = true,
       help = "Hides the plate of any friendly player who isn't in your party or raid, so solo you see none. "
-          .. "Friendly NPCs aren't affected. Hidden plates still take up room when plates stack." },
+          .. "Friendly NPCs aren't affected." },
     { key = "showHurt", command = "showhurt", label = "Hurt friends show out of combat",
       help = "Keeps friendly plates switched on outside combat, so anyone below full health still shows. "
           .. "Players at full health stay hidden out of combat. Works with the friendly combat option; "
           .. "with that off, friendly plates are left to you." },
     { key = "deficit", command = "deficit", label = "Show missing health", off = true,
-      help = "Friendly plates show how much health is missing (-0 at full health) in place of Blizzard's health number. "
+      help = "Friendly plates show how much health is missing in place of Blizzard's health number, and no number at full health. "
           .. "Inside dungeons and raids Blizzard keeps friendly plates off limits to addons; there, the party frames "
           .. "can show missing health instead. This used to be the Deficit Plates addon; disable that one." },
-    { key = "fadeFull", command = "fadefull", section = "Friends at full health", label = "Fade them",
-      help = "While a friendly player is at full health, their plate is faint in combat and hidden out of combat. "
-          .. "It turns solid as soon as they lose health. Hidden plates still take up room when plates stack." },
+    { key = "hideLevel", command = "level", label = "Hide players' level", off = true,
+      help = "Friendly player plates don't show the level next to the health bar. Friendly NPCs keep theirs. "
+          .. "The bar keeps its width, since Blizzard draws the level outside it." },
+    { key = "fadeFull", command = "fadefull", section = "Friends at full health", label = "Hide them",
+      help = "While a friendly player is at full health, their plate is hidden, in and out of combat. "
+          .. "It shows as soon as they lose health. Hidden plates still take up room when plates stack." },
     { key = "names", command = "names", label = "Show only their name", off = true,
       help = "In place of fading or hiding them, friendly plates at full health show just the name, in class colour, "
           .. "in and out of combat. The health bar appears as soon as they lose health. With the friendly combat option "
@@ -59,8 +68,9 @@ local OPTIONS = {
           .. "which hides the bar even when they're hurt, and puts it back when you turn this off." },
     { key = "sides", command = "sides", section = "Layout", label = "Friendly left, enemy right",
       help = "Each plate shifts sideways: friendly ones to the left of the character, enemy ones to the right, "
-          .. "so the two groups don't mix. On clients with the nameplateMotion setting, plates also stack "
-          .. "instead of overlapping, and turning this off puts that setting back." },
+          .. "so the two groups don't mix. Also turns on Blizzard's plate stacking for both, so plates stack "
+          .. "in a column on each side instead of overlapping, and turning this off puts your stacking setting back. "
+          .. "Inside dungeons and raids friendly plates stay over their character." },
 }
 
 -- Labels are short and read under their heading, so chat output names the
@@ -88,6 +98,8 @@ local moved = setmetatable({}, { __mode = "k" })
 local faded = setmetatable({}, { __mode = "k" })
 -- Health bars we faded to leave only the name, same weak keys.
 local barFaded = setmetatable({}, { __mode = "k" })
+-- Level frames we faded on friendly player plates, same weak keys.
+local levelFaded = setmetatable({}, { __mode = "k" })
 -- Our missing-health text per Blizzard UnitFrame, same weak keys.
 local deficitTexts = setmetatable({}, { __mode = "k" })
 -- The old Deficit Plates addon, if still enabled, owns the health text.
@@ -143,11 +155,46 @@ local function Hold(on, cvar, value, beforeKey)
     end
 end
 
--- Stacking on while sides is on (WoW Forever has no nameplateMotion). While
+local function GetBit(index)
+    local get = (C_CVar and C_CVar.GetCVarBitfield) or GetCVarBitfield
+    return get(STACK_CVAR, index) and true or false
+end
+
+local function SetBit(index, value)
+    if InCombatLockdown() then return end
+    local set = (C_CVar and C_CVar.SetCVarBitfield) or SetCVarBitfield
+    local ok, result = pcall(set, STACK_CVAR, index, value)
+    lastWrite[STACK_CVAR .. "#" .. index] = value and "on" or "off"
+    if ok and result ~= false then return end
+    Warn("change " .. STACK_CVAR, tostring(result))
+end
+
+-- Hold for Blizzard's stacking bits: each side's bit held on while on is,
+-- its old value put back after. Skipped on clients without the setting.
+local function HoldStacking(on)
+    if InCombatLockdown() or GetValue(STACK_CVAR) == nil then return end
+    if not ((C_CVar and C_CVar.GetCVarBitfield) or GetCVarBitfield) then return end
+    for _, bit in ipairs(STACK_BITS) do
+        if on then
+            local current = GetBit(bit.index)
+            if not current then
+                if settings[bit.before] == nil then settings[bit.before] = current end
+                SetBit(bit.index, true)
+            end
+        elseif settings[bit.before] ~= nil then
+            SetBit(bit.index, settings[bit.before])
+            settings[bit.before] = nil
+        end
+    end
+end
+
+-- Stacking on while sides is on: Blizzard's stacking setting on WoW Forever,
+-- nameplateMotion on clients that have it. While
 -- names is on, class colour on and Blizzard's name-only mode off, since that
 -- one hides the bar of hurt friends too.
 local function ApplyHeld()
     Hold(settings.sides, MOTION_CVAR, "1", "motionBefore")
+    HoldStacking(settings.sides)
     Hold(settings.names, CLASS_COLOR_CVAR, "1", "classColorBefore")
     Hold(settings.names, ONLY_NAME_CVAR, "0", "onlyNameBefore")
 end
@@ -240,12 +287,13 @@ local function FullHealthAlpha(unit, atFull)
     return UnitHealthPercent(unit, false, curve)
 end
 
--- Alpha for a full-health friendly plate, or nil to leave it solid. Out of
--- combat, friendly plates are on only for hurt friends (show hurt) or because
--- the player pressed Shift+V; either way full-health ones hide.
+-- Alpha for a full-health friendly plate, or nil to leave it solid. Health
+-- is secret, so the plate can't be hidden for real, only drawn at alpha 0.
+-- Out of combat, friendly plates are on only for hurt friends (show hurt) or
+-- because the player pressed Shift+V; either way full-health ones hide.
 local function FullHealthTarget()
-    if inCombat then return settings.fadeFull and FADED_ALPHA or nil end
-    if settings.fadeFull or (settings.friends and settings.showHurt) then return 0 end
+    if settings.fadeFull then return 0 end
+    if not inCombat and settings.friends and settings.showHurt then return 0 end
 end
 
 local function Place(plate, uf, friend)
@@ -260,6 +308,34 @@ local function Place(plate, uf, friend)
         uf:SetAllPoints(plate)
         moved[uf] = nil
     end
+end
+
+-- The engine stacks plates by their own frame, which ignores Place's shift:
+-- friends and enemies end up in one pile. With sides, it stacks by the moved
+-- UnitFrame instead, so each side stacks in its own column. Plates we hide
+-- stack as a 1 px dot, so they don't push visible ones up. Blizzard never
+-- calls SetStackingBoundsFrame, so the plate itself is the default.
+local stackedBy = setmetatable({}, { __mode = "k" })
+local dots = setmetatable({}, { __mode = "k" })
+local function Stack(plate, uf, hide)
+    if not plate.SetStackingBoundsFrame then return end
+    local bounds = plate
+    if hide then
+        if not dots[plate] then
+            local dot = CreateFrame("Frame", nil, plate)
+            dot:SetSize(1, 1)
+            dot:SetPoint("BOTTOM", plate, "BOTTOM")
+            dots[plate] = dot
+        end
+        bounds = dots[plate]
+    elseif settings.sides then
+        bounds = uf
+    end
+    -- Set again on every update, in case the engine resets it when a plate
+    -- is reused; a plate we never touched is left alone.
+    if bounds == plate and not stackedBy[plate] then return end
+    plate:SetStackingBoundsFrame(bounds)
+    stackedBy[plate] = bounds ~= plate and bounds or nil
 end
 
 -- With the names option, a full-health friend's health bar fades out and its
@@ -295,7 +371,25 @@ local function ShowDeficit(uf, unit, friend)
     if not bar then return end
     local show = friend and settings.deficit and not deficitPlatesLoaded
     if show and not deficitTexts[uf] then deficitTexts[uf] = ns.Deficit.CreateText(bar) end
-    if show or deficitTexts[uf] then ns.Deficit.Update(bar, deficitTexts[uf], unit, show) end
+    if show or deficitTexts[uf] then
+        ns.Deficit.Update(bar, deficitTexts[uf], unit, show, show and FullHealthAlpha(unit, 0))
+    end
+end
+
+-- Blizzard's level box sits outside the health bar (anchored to its
+-- TOPRIGHT, so UpdateAnchors reserves no room for it): fading it leaves no
+-- gap. Alpha, not Hide(), because Blizzard calls Show() on it.
+local function HideLevel(uf, unit, friend)
+    local level = uf.PlayerLevelDiffFrame
+    if not level then return end
+    local hide = friend and settings.hideLevel and Plain(UnitIsPlayer(unit)) == true
+    if hide then
+        level:SetAlpha(0)
+        levelFaded[level] = true
+    elseif levelFaded[level] then
+        level:SetAlpha(1)
+        levelFaded[level] = nil
+    end
 end
 
 -- Each step in its own pcall, so a client change shows one chat line
@@ -313,10 +407,14 @@ local function UpdatePlate(unit)
         Warn("decide which plates to hide", tostring(hide))
         hide = false
     end
+    ok, err = pcall(Stack, plate, uf, hide)
+    if not ok then Warn("stack plates", tostring(err)) end
     ok, err = pcall(Fade, uf, unit, friend, hide)
-    if not ok then Warn("fade full-health plates", tostring(err)) end
+    if not ok then Warn("hide full-health plates", tostring(err)) end
     ok, err = pcall(ShowDeficit, uf, unit, friend)
     if not ok then Warn("show missing health", tostring(err)) end
+    ok, err = pcall(HideLevel, uf, unit, friend)
+    if not ok then Warn("hide player levels", tostring(err)) end
 end
 
 local function UpdateAllPlates()
@@ -498,6 +596,14 @@ local function Status()
         print(("  %s = %s (addon last wrote %s)"):format(cvar,
             value == nil and "missing" or value, lastWrite[cvar] or "nothing"))
     end
+    if GetValue(STACK_CVAR) == nil or not ((C_CVar and C_CVar.GetCVarBitfield) or GetCVarBitfield) then
+        print(("  %s = missing"):format(STACK_CVAR))
+    else
+        for _, bit in ipairs(STACK_BITS) do
+            print(("  %s %s = %s (addon last wrote %s)"):format(STACK_CVAR, bit.name,
+                GetBit(bit.index) and "on" or "off", lastWrite[STACK_CVAR .. "#" .. bit.index] or "nothing"))
+        end
+    end
     local shown, friends = 0, 0
     for unit in pairs(plates) do
         shown = shown + 1
@@ -555,10 +661,13 @@ local function Status()
             Show(UnitInRaid(unit)), IsFriend(unit) and "friendly" or "enemy"))
         local plate = plates[unit]
         local uf = plate.UnitFrame
-        print("    plate: " .. Looks(plate))
+        local by = stackedBy[plate]
+        print(("    plate: %s, stacks by %s"):format(Looks(plate), by == uf and "frame"
+            or by == dots[plate] and by and "dot" or plate.SetStackingBoundsFrame and "plate" or "plate (no API)"))
         print(("    frame: %s%s"):format(Looks(uf), faded[uf] and " (faded by us)" or ""))
         print("    health bar: " .. Looks(uf and uf.healthBar))
         print("    name: " .. Looks(uf and uf.name))
+        print("    level: " .. Looks(uf and uf.PlayerLevelDiffFrame))
     end
     print("  last error: " .. (lastError or "none"))
     -- List the client's nameplate show, stacking and overlap CVars, to spot
@@ -571,7 +680,7 @@ local function Status()
         local lower = name and name:lower() or ""
         local wanted = lower:find("^nameplate") and (lower:find("^nameplateshow")
             or lower:find("motion") or lower:find("stack") or lower:find("overlap"))
-        if wanted and not managed[name] and name ~= MOTION_CVAR and name ~= ONLY_NAME_CVAR then
+        if wanted and not managed[name] and name ~= MOTION_CVAR and name ~= ONLY_NAME_CVAR and name ~= STACK_CVAR then
             local value = GetValue(name)
             if value ~= nil then others[#others + 1] = name .. "=" .. value end
         end
@@ -625,6 +734,8 @@ SLASH_DDNNAMES1 = "/ddn-names"
 SlashCmdList.DDNNAMES = MakeToggle("names")
 SLASH_DDNDEFICIT1 = "/ddn-deficit"
 SlashCmdList.DDNDEFICIT = MakeToggle("deficit")
+SLASH_DDNLEVEL1 = "/ddn-level"
+SlashCmdList.DDNLEVEL = MakeToggle("hideLevel")
 SLASH_DDNSIDES1 = "/ddn-sides"
 SlashCmdList.DDNSIDES = MakeToggle("sides")
 SLASH_DDNSTATUS1 = "/ddn-status"

@@ -21,10 +21,11 @@ function Deficit.CreateText(bar)
     return text
 end
 
--- show: Blizzard's health number hidden, ours shows missing health (-0 at
--- full). Otherwise Blizzard's number back and ours hidden. Alpha, not Hide(),
+-- show: Blizzard's health number hidden, ours shows missing health. alpha is
+-- 0 at full health and 1 below, from a curve, since health can't be compared
+-- here. Otherwise Blizzard's number back and ours hidden. Alpha, not Hide(),
 -- because Blizzard calls Show() on its texts.
-function Deficit.Update(bar, text, unit, show)
+function Deficit.Update(bar, text, unit, show, alpha)
     for _, key in ipairs(BLIZZARD_TEXTS) do
         if bar[key] then bar[key]:SetAlpha(show and 0 or 1) end
     end
@@ -34,7 +35,7 @@ function Deficit.Update(bar, text, unit, show)
         return
     end
     text:SetText("-" .. AbbreviateNumbers(UnitHealthMissing(unit)))
-    text:SetAlpha(1)
+    text:SetAlpha(alpha)
 end
 
 -- "shown", "hidden" or "?" for a widget, for /ddn-status. Guarded, because

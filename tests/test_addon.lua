@@ -77,6 +77,8 @@ local function Load(opts)
         function f:UnregisterEvent(event) self.events[event] = nil end
         function f:IsEventRegistered(event) return self.events[event] == true end
         function f:SetScript(name, fn) self.scripts[name] = fn end
+        function f:SetSize(w, h) self.size = w .. "x" .. h end
+        function f:SetPoint(point) self.point = point end
         return f
     end
     local frame = NewFrame()
@@ -108,6 +110,20 @@ local function Load(opts)
         G.GetCVar = get
     else
         G.C_CVar = { SetCVar = set, GetCVar = get }
+        -- opts.bits: starting stacking bits ({ [1] = enemy, [2] = friendly }),
+        -- and the client has the bitfield API.
+        if opts.bits then
+            env.bits = opts.bits
+            G.C_CVar.GetCVarBitfield = function(name, index)
+                assert(name == "nameplateStackingTypes", name)
+                return env.bits[index] == true
+            end
+            G.C_CVar.SetCVarBitfield = function(name, index, value)
+                env.writes[#env.writes + 1] = name .. "#" .. index .. "=" .. tostring(value)
+                env.bits[index] = value
+                return true
+            end
+        end
         G.SetCVar = function() error("global SetCVar used while C_CVar exists", 0) end
         G.GetCVar = function() error("global GetCVar used while C_CVar exists", 0) end
     end
@@ -148,7 +164,9 @@ local function Load(opts)
             self.created[#self.created + 1] = t
             return t
         end
-        local uf = { alpha = 1, points = "all", healthBar = bar }
+        local level = { alpha = 1 }
+        function level:SetAlpha(a) self.alpha = a end
+        local uf = { alpha = 1, points = "all", healthBar = bar, PlayerLevelDiffFrame = level }
         function uf:SetAlpha(a) self.alpha = a end
         function uf:ClearAllPoints() self.points = "" end
         function uf:SetAllPoints() self.points = "all" end
@@ -156,6 +174,10 @@ local function Load(opts)
             self.points = self.points .. point .. "(" .. x .. "," .. y .. ")"
         end
         env.plates[unit] = { UnitFrame = uf, IsForbidden = function() return false end }
+        -- opts.stacking: the plate has SetStackingBoundsFrame, recorded in stackedBy.
+        if opts.stacking then
+            env.plates[unit].SetStackingBoundsFrame = function(self, f) self.stackedBy = f end
+        end
         env.fire("NAME_PLATE_UNIT_ADDED", unit)
         return uf
     end
@@ -289,7 +311,7 @@ test("every slash command uses the /ddn- prefix", function()
             assert(v:match("^/ddn%-%l+$"), k .. " = " .. v)
         end
     end
-    eq(n, 13, "slash commands")
+    eq(n, 14, "slash commands")
 end)
 
 test("every option but engaged is on by default on a fresh install", function()
@@ -300,6 +322,7 @@ test("every option but engaged is on by default on a fresh install", function()
     eq(env.globals.DynamicDisplayNameplateDB.engaged, false, "saved engaged")
     eq(env.globals.DynamicDisplayNameplateDB.deficit, false, "saved deficit")
     eq(env.globals.DynamicDisplayNameplateDB.groupOnly, false, "saved groupOnly")
+    eq(env.globals.DynamicDisplayNameplateDB.hideLevel, false, "saved hideLevel")
 end)
 
 test("a saved table from before engaged gains it, off", function()
@@ -524,11 +547,11 @@ test("show hurt keeps friendly plates on out of combat and hides full-health one
     eq(full.alpha, 1, "full-health friend in combat without fadeFull")
 end)
 
-test("fade full: full-health friends faint in combat, hidden out of it, solid once hurt", function()
+test("fade full: full-health friends hidden in and out of combat, solid once hurt", function()
     local env = Load({ saved = Old({ fadeFull = true }) })
     env.fire("PLAYER_REGEN_DISABLED")
     local uf = env.addPlate("nameplate1", true, "full")
-    eq(uf.alpha, 0.3, "full health in combat")
+    eq(uf.alpha, 0, "full health in combat")
     env.units.nameplate1.health = "hurt"
     env.fire("UNIT_HEALTH", "nameplate1")
     eq(uf.alpha, 1, "after taking damage")
@@ -557,7 +580,7 @@ test("a plate reused for another unit is updated on add", function()
     local env = Load({ saved = Old({ fadeFull = true }) })
     env.fire("PLAYER_REGEN_DISABLED")
     local uf = env.addPlate("nameplate1", true, "full")
-    eq(uf.alpha, 0.3, "friend at full")
+    eq(uf.alpha, 0, "friend at full")
     env.fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
     env.units.nameplate1 = { friend = false, health = "full" }
     env.fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
@@ -569,7 +592,7 @@ test("secret friend state still counts party and raid members as friends", funct
     local secret = {}
     env.globals.issecretvalue = function(v) return v == secret end
     env.globals.UnitIsFriend = function() return secret end
-    local member = env.addPlate("nameplate1", true)
+    local member = env.addPlate("nameplate1", true, "hurt")
     env.units.nameplate1.group = "raid"
     env.fire("UNIT_HEALTH", "nameplate1")
     eq(member.healthBar.created[1].alpha, 1, "member gets missing health")
@@ -594,7 +617,7 @@ test("a failing health API warns once instead of erroring", function()
     env.addPlate("nameplate1", true, "full")
     env.addPlate("nameplate2", true, "full")
     eq(#env.printed, 1, "warnings")
-    assert(env.printed[1]:find("fade full-health plates", 1, true), env.printed[1])
+    assert(env.printed[1]:find("hide full-health plates", 1, true), env.printed[1])
 end)
 
 test("sides moves friendly plates left and enemy plates right, and turns stacking on", function()
@@ -624,6 +647,45 @@ test("sides leaves stacking alone when it was already on", function()
     env.fire("PLAYER_ENTERING_WORLD", true, false)
     env.slash("/ddn-sides off")
     eq(writes(env), OFF .. "," .. OFF, "writes")
+end)
+
+test("sides turns Blizzard's stacking on for both sides and puts the old bits back", function()
+    local env = Load({ saved = Old({ sides = true }), missing = "nameplateMotion", bits = { [1] = true, [2] = false } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    eq(writes(env), OFF .. ",nameplateStackingTypes#2=true", "only the off bit is written")
+    eq(env.globals.DynamicDisplayNameplateDB.stackEnemyBefore, nil, "enemy bit was already on")
+    eq(env.globals.DynamicDisplayNameplateDB.stackFriendlyBefore, false, "friendly bit saved")
+    env.writes = {}
+    env.slash("/ddn-sides off")
+    eq(writes(env), OFF .. ",nameplateStackingTypes#2=false", "friendly bit back off")
+    eq(env.bits[1], true, "enemy bit untouched")
+    eq(env.globals.DynamicDisplayNameplateDB.stackFriendlyBefore, nil, "saved value cleared")
+end)
+
+test("the old stacking bits survive a reload and are restored after it", function()
+    local env = Load({ saved = Old({ sides = true, stackEnemyBefore = false }), missing = "nameplateMotion",
+        bits = { [1] = true, [2] = true } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    env.writes = {}
+    env.slash("/ddn-sides off")
+    eq(writes(env), OFF .. ",nameplateStackingTypes#1=false", "enemy bit back off")
+end)
+
+test("stacking bits are never written during combat lockdown", function()
+    local env = Load({ saved = Old(), missing = "nameplateMotion", bits = { [1] = false, [2] = false } })
+    env.lockdown = true
+    env.slash("/ddn-sides on")
+    eq(env.bits[1], false, "enemy bit")
+    eq(env.bits[2], false, "friendly bit")
+end)
+
+test("/ddn-status shows the stacking bits", function()
+    local env = Load({ saved = Old({ sides = true }), missing = "nameplateMotion", bits = { [1] = true, [2] = false } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    env.slash("/ddn-status")
+    local out = table.concat(env.printed, "\n")
+    assert(out:find("nameplateStackingTypes enemy = on (addon last wrote nothing)", 1, true), out)
+    assert(out:find("nameplateStackingTypes friendly = on (addon last wrote on)", 1, true), out)
 end)
 
 test("sides without nameplateMotion still shifts plates and warns about nothing", function()
@@ -777,8 +839,10 @@ test("deficit shows missing health on friendly plates in Blizzard's spot and fon
     eq(text.point, "RIGHT RIGHT", "anchor")
     eq(blizzardTexts(uf), "0,0,0", "Blizzard's texts hidden")
     env.units.nameplate1.missing = 0
+    env.units.nameplate1.health = "full"
     env.fire("UNIT_HEALTH", "nameplate1")
-    eq(text.text, "-abbr0", "-0 at full health")
+    eq(text.alpha, 0, "no number at full health")
+    eq(blizzardTexts(uf), "0,0,0", "Blizzard's texts still hidden")
 end)
 
 test("deficit leaves enemy plates alone and gives a reused frame back to Blizzard", function()
@@ -843,7 +907,7 @@ end)
 
 test("/ddn-status reports missing health and stacking CVars", function()
     local env = Load({ saved = Old({ deficit = true }), console = { "nameplateStackFriendly", "nameplateOverlapV", "nameplateMaxDistance" } })
-    env.addPlate("nameplate1", true)
+    env.addPlate("nameplate1", true, "hurt")
     env.addPlate("nameplate2", false)
     env.slash("/ddn-status")
     local out = table.concat(env.printed, "\n")
@@ -891,7 +955,7 @@ test("group only beats the full-health fade; members still fade", function()
     local stranger = addFriend(env, "nameplate1", nil, "full")
     local member = addFriend(env, "nameplate2", "party", "full")
     eq(stranger.alpha, 0, "stranger hidden")
-    eq(member.alpha, 0.3, "member faded")
+    eq(member.alpha, 0, "member hidden")
 end)
 
 test("group only keeps a plate shown when a secret value hides the answer", function()
@@ -991,7 +1055,7 @@ test("/ddn-help lists the commands under their headings", function()
     local env = Load()
     env.slash("/ddn-help")
     local out = table.concat(env.printed, "\n")
-    assert(out:find("Friends at full health:\n    /ddn-fadefull [on|off] - fade them (now on)", 1, true), out)
+    assert(out:find("Friends at full health:\n    /ddn-fadefull [on|off] - hide them (now on)", 1, true), out)
 end)
 
 test("/ddn-friends off with the default options leaves friendly plates alone", function()
@@ -1058,6 +1122,89 @@ test("names turns Blizzard's name-only mode off and puts it back", function()
     env.slash("/ddn-names off")
     assert(writes(env):find("nameplateShowOnlyNameForFriendlyPlayerUnits=1", 1, true), writes(env))
     eq(env.globals.DynamicDisplayNameplateDB.onlyNameBefore, nil, "old value cleared")
+end)
+
+test("sides makes plates stack by their moved frame", function()
+    local env = Load({ saved = Old({ sides = true }), stacking = true })
+    local friend = env.addPlate("nameplate1", true)
+    local enemy = env.addPlate("nameplate2", false)
+    eq(env.plates.nameplate1.stackedBy, friend, "friend stacks by its frame")
+    eq(env.plates.nameplate2.stackedBy, enemy, "enemy stacks by its frame")
+    env.slash("/ddn-sides off")
+    eq(env.plates.nameplate1.stackedBy, env.plates.nameplate1, "back to the plate")
+end)
+
+test("plates stay untouched without sides or a hidden plate", function()
+    local env = Load({ saved = Old(), stacking = true })
+    env.addPlate("nameplate1", true)
+    eq(env.plates.nameplate1.stackedBy, nil, "never set")
+end)
+
+test("hidden plates stack as a dot and get their size back when shown", function()
+    local env = Load({ saved = Old({ engaged = true }), stacking = true })
+    env.fire("PLAYER_REGEN_DISABLED")
+    env.addPlate("nameplate1", false)
+    local dot = env.plates.nameplate1.stackedBy
+    eq(dot and dot.size, "1x1", "idle enemy stacks as a dot")
+    env.units.nameplate1.isTarget = true
+    env.fire("PLAYER_TARGET_CHANGED")
+    eq(env.plates.nameplate1.stackedBy, env.plates.nameplate1, "target stacks by the plate")
+    env.units.nameplate1.isTarget = false
+    env.fire("PLAYER_TARGET_CHANGED")
+    eq(env.plates.nameplate1.stackedBy, dot, "dot made once per plate")
+end)
+
+test("/ddn-status says what each plate stacks by", function()
+    local env = Load({ saved = Old({ sides = true }), stacking = true })
+    env.addPlate("nameplate1", true)
+    env.slash("/ddn-status")
+    local out = table.concat(env.printed, "\n")
+    assert(out:find("stacks by frame", 1, true), out)
+end)
+
+test("hide level off leaves every level shown", function()
+    local env = Load()
+    local uf = addFriend(env, "nameplate1")
+    eq(uf.PlayerLevelDiffFrame.alpha, 1, "friendly player level")
+end)
+
+test("hide level fades only friendly players' level", function()
+    local env = Load({ saved = Old({ hideLevel = true }) })
+    local friend = addFriend(env, "nameplate1")
+    eq(friend.PlayerLevelDiffFrame.alpha, 0, "friendly player")
+    local npc = env.addPlate("nameplate2", true)
+    eq(npc.PlayerLevelDiffFrame.alpha, 1, "friendly NPC")
+    local enemy = env.addPlate("nameplate3", false)
+    env.units.nameplate3.player = true
+    env.fire("UNIT_FACTION", "nameplate3")
+    eq(enemy.PlayerLevelDiffFrame.alpha, 1, "enemy player")
+end)
+
+test("hide level gives a reused frame its level back, and /ddn-level off restores it", function()
+    local env = Load({ saved = Old({ hideLevel = true }) })
+    local uf = addFriend(env, "nameplate1")
+    env.fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+    env.units.nameplate1 = { friend = false, health = "full", player = true }
+    env.fire("NAME_PLATE_UNIT_ADDED", "nameplate1")
+    eq(uf.PlayerLevelDiffFrame.alpha, 1, "reused for an enemy")
+    local other = addFriend(env, "nameplate2")
+    eq(other.PlayerLevelDiffFrame.alpha, 0, "hidden")
+    env.slash("/ddn-level off")
+    eq(other.PlayerLevelDiffFrame.alpha, 1, "back after off")
+    eq(env.globals.DynamicDisplayNameplateDB.hideLevel, false, "saved")
+end)
+
+test("hide level leaves a secret player state shown and skips plates without a level", function()
+    local env = Load({ saved = Old({ hideLevel = true }) })
+    local secret = {}
+    env.globals.issecretvalue = function(v) return v == secret end
+    local uf = env.addPlate("nameplate1", true)
+    env.globals.UnitIsPlayer = function() return secret end
+    env.fire("UNIT_FACTION", "nameplate1")
+    eq(uf.PlayerLevelDiffFrame.alpha, 1, "secret: shown")
+    uf.PlayerLevelDiffFrame = nil
+    env.fire("UNIT_FACTION", "nameplate1")
+    eq(#env.printed, 0, "no warnings")
 end)
 local failed = 0
 for _, t in ipairs(tests) do

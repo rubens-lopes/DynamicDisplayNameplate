@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.0
+
+- New: hide the level on friendly player plates (`/ddn-level`). Friendly NPCs keep theirs, and the health bar keeps its width. Off by default.
+- Friendly plates at full health (`/ddn-fadefull`) are now hidden in combat too, in place of showing faint. They show as soon as the friend loses health.
+- Friendly left, enemy right (`/ddn-sides`) now stacks plates in a column on each side: it turns on Blizzard's plate stacking for enemies and friends (and puts your setting back when turned off), and each plate stacks where it's drawn, not where it was before the shift. Enemy plates hidden by `/ddn-engaged` and friends hidden by `/ddn-group` no longer take up room in the stack. Inside dungeons and raids, friendly plates are off limits to addons and stay over their character.
+- Missing health (`/ddn-deficit`) no longer shows `-0` at full health: the number appears only once a friend loses health.
+
 ## v0.4.0
 
 - New options panel, in the same style as the game's own: the switches are grouped under headings (enemy plates, friendly plates, friends at full health, layout), hover one to see what it does, and Defaults puts them all back.
