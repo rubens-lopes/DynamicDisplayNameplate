@@ -35,7 +35,7 @@ Blizzard keeps friendly plates off limits to addons there, so the friendly-plate
 - `/ddn-options` opens the options panel.
 - `/ddn-enemies [on|off]` sets whether enemy plates follow combat. On by default. When off, the addon leaves enemy plates alone.
 - `/ddn-friends [on|off]` sets whether friendly player plates follow combat. On by default. When off, the addon leaves friendly plates alone.
-- `/ddn-engaged [on|off]`, `/ddn-group [on|off]`, `/ddn-fadefull [on|off]`, `/ddn-showhurt [on|off]`, `/ddn-names [on|off]`, `/ddn-deficit [on|off]`, `/ddn-level [on|off]` and `/ddn-sides [on|off]` switch the other eight options.
+- `/ddn-engaged [on|off]`, `/ddn-group [on|off]`, `/ddn-fadefull [on|off]`, `/ddn-showhurt [on|off]`, `/ddn-names [on|off]`, `/ddn-classcolor [on|off]`, `/ddn-deficit [on|off]`, `/ddn-level [on|off]` and `/ddn-sides [on|off]` switch the other nine options.
 - `/ddn-status` shows each nameplate setting, its current value, and what the addon last set it to.
 - `/ddn-watch` prints every game setting change until you run it again. Useful for bug reports.
 

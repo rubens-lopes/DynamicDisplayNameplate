@@ -66,6 +66,10 @@ local OPTIONS = {
           .. "in and out of combat. The health bar appears as soon as they lose health. With the friendly combat option "
           .. "on, this keeps friendly plates switched on outside combat. Turns off Blizzard's own name-only setting, "
           .. "which hides the bar even when they're hurt, and puts it back when you turn this off." },
+    { key = "classNames", command = "classcolor", label = "Names in class colour",
+      help = "With \"Show only their name\" on, friendly players' names are held in class colour. "
+          .. "Turn this off to keep the game's own colour for them, the one their name has from far away, "
+          .. "before the plate shows. Your own class colour setting for friendly names then applies." },
     { key = "sides", command = "sides", section = "Layout", label = "Friendly left, enemy right",
       help = "Each plate shifts sideways: friendly ones to the left of the character, enemy ones to the right, "
           .. "so the two groups don't mix. Also turns on Blizzard's plate stacking for both, so plates stack "
@@ -189,13 +193,13 @@ local function HoldStacking(on)
 end
 
 -- Stacking on while sides is on: Blizzard's stacking setting on WoW Forever,
--- nameplateMotion on clients that have it. While
--- names is on, class colour on and Blizzard's name-only mode off, since that
--- one hides the bar of hurt friends too.
+-- nameplateMotion on clients that have it. While names is on, Blizzard's
+-- name-only mode off, since that one hides the bar of hurt friends too, and
+-- class colour on unless the player turned that off.
 local function ApplyHeld()
     Hold(settings.sides, MOTION_CVAR, "1", "motionBefore")
     HoldStacking(settings.sides)
-    Hold(settings.names, CLASS_COLOR_CVAR, "1", "classColorBefore")
+    Hold(settings.names and settings.classNames, CLASS_COLOR_CVAR, "1", "classColorBefore")
     Hold(settings.names, ONLY_NAME_CVAR, "0", "onlyNameBefore")
 end
 
@@ -364,6 +368,48 @@ local function Fade(uf, unit, friend, hide)
     end
 end
 
+-- EllesmereUI Nameplates, with friendly plates in health-bar mode, parks
+-- Blizzard's UnitFrame on a hidden frame and draws its own frame on the
+-- plate, kept by unit in its namespace (a global). Hiding and the
+-- full-health fade go to that frame too. In its name-only mode it keeps
+-- Blizzard's UnitFrame, and there is no frame of its own.
+local function EllesmereFrame(unit)
+    local eui = EllesmereNameplates_NS
+    local list = type(eui) == "table" and eui.friendlyPlates
+    return type(list) == "table" and list[unit] or nil
+end
+
+-- Per nameplate unit token, the frames we may have faded: Blizzard's
+-- UnitFrame (the plate no longer has it once the unit is removed) and
+-- EllesmereUI's frame.
+local shownFrames = {}
+local otherFrames = {}
+
+local function Unfade(f)
+    if not f or not faded[f] then return end
+    f:SetAlpha(1)
+    faded[f] = nil
+end
+
+local function FadeOther(unit, friend, hide)
+    local other = EllesmereFrame(unit)
+    -- EllesmereUI pools its frames: one it took back goes back solid.
+    if otherFrames[unit] ~= other then Unfade(otherFrames[unit]) end
+    otherFrames[unit] = other
+    if other then Fade(other, unit, friend, hide) end
+end
+
+-- Both kinds of frame are pooled and go to another unit next, so they go
+-- back solid. Health-driven alpha is secret, and EllesmereUI compares the
+-- alpha of the UnitFrame it's handed.
+local function Release(unit)
+    for _, list in ipairs({ shownFrames, otherFrames }) do
+        local ok, err = pcall(Unfade, list[unit])
+        if not ok then Warn("put a faded plate back", tostring(err)) end
+        list[unit] = nil
+    end
+end
+
 -- Blizzard's health texts are touched only on frames that got our text, so
 -- with the option off, plates stay fully Blizzard's.
 local function ShowDeficit(uf, unit, friend)
@@ -411,6 +457,9 @@ local function UpdatePlate(unit)
     if not ok then Warn("stack plates", tostring(err)) end
     ok, err = pcall(Fade, uf, unit, friend, hide)
     if not ok then Warn("hide full-health plates", tostring(err)) end
+    shownFrames[unit] = uf
+    ok, err = pcall(FadeOther, unit, friend, hide)
+    if not ok then Warn("hide EllesmereUI's plates", tostring(err)) end
     ok, err = pcall(ShowDeficit, uf, unit, friend)
     if not ok then Warn("show missing health", tostring(err)) end
     ok, err = pcall(HideLevel, uf, unit, friend)
@@ -440,6 +489,14 @@ local function OnPlateAdded(unit)
     end
     plates[unit] = plate
     UpdatePlate(unit)
+    -- EllesmereUI handles this event too. If it runs after us, it only then
+    -- makes its frame, and in name-only mode it sets a hidden UnitFrame's
+    -- alpha back to 1. So update once more after it.
+    if EllesmereNameplates_NS and C_Timer then
+        C_Timer.After(0, function()
+            if plates[unit] == plate then UpdatePlate(unit) end
+        end)
+    end
 end
 
 local function OnUnit(unit)
@@ -449,6 +506,7 @@ end
 local PLATE_EVENTS = {
     NAME_PLATE_UNIT_ADDED = OnPlateAdded,
     NAME_PLATE_UNIT_REMOVED = function(unit)
+        Release(unit)
         plates[unit] = nil
         forbidden[unit] = nil
     end,
@@ -467,6 +525,7 @@ local PLATE_EVENTS = {
     end,
 }
 
+local registeredLast = false
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -487,6 +546,14 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     if PLATE_EVENTS[event] then return PLATE_EVENTS[event](arg1) end
     if event == "PLAYER_ENTERING_WORLD" then
         UpdateMembers()
+        -- Registering again, now that every addon has loaded, is meant to put
+        -- us behind EllesmereUI for new plates, so a plate we hide doesn't
+        -- show for a frame first. The update a frame later covers it if not.
+        if EllesmereNameplates_NS and not registeredLast then
+            registeredLast = true
+            frame:UnregisterEvent("NAME_PLATE_UNIT_ADDED")
+            frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+        end
         local loaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
         deficitPlatesLoaded = loaded ~= nil and loaded("DeficitPlates") and true or false
         if deficitPlatesLoaded and settings.deficit and not warned.deficitPlates then
@@ -612,6 +679,13 @@ local function Status()
     local blocked = 0
     for _ in pairs(forbidden) do blocked = blocked + 1 end
     print(("  plates shown: %d, friendly: %d, off limits to addons: %d"):format(shown, friends, blocked))
+    if EllesmereNameplates_NS then
+        local own = 0
+        for unit in pairs(plates) do
+            if EllesmereFrame(unit) then own = own + 1 end
+        end
+        print(("  EllesmereUI Nameplates is loaded; friendly plates it draws itself: %d"):format(own))
+    end
     -- Whether the engaged check can see threat and targets on this client.
     -- "unknown" counts plates where a secret value hid the answer.
     local fighting, idle, unknown = 0, 0, 0
@@ -732,6 +806,8 @@ SLASH_DDNSHOWHURT1 = "/ddn-showhurt"
 SlashCmdList.DDNSHOWHURT = MakeToggle("showHurt")
 SLASH_DDNNAMES1 = "/ddn-names"
 SlashCmdList.DDNNAMES = MakeToggle("names")
+SLASH_DDNCLASSCOLOR1 = "/ddn-classcolor"
+SlashCmdList.DDNCLASSCOLOR = MakeToggle("classNames")
 SLASH_DDNDEFICIT1 = "/ddn-deficit"
 SlashCmdList.DDNDEFICIT = MakeToggle("deficit")
 SLASH_DDNLEVEL1 = "/ddn-level"

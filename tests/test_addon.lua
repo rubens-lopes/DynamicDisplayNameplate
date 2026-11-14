@@ -137,6 +137,26 @@ local function Load(opts)
         end }
     end
     G.DynamicDisplayNameplateDB = opts.saved
+    -- Timers wait until env.runTimers(), like the next frame in game.
+    env.timers = {}
+    G.C_Timer = { After = function(_, fn) env.timers[#env.timers + 1] = fn end }
+    function env.runTimers()
+        local due = env.timers
+        env.timers = {}
+        for _, fn in ipairs(due) do fn() end
+    end
+    -- opts.ellesmere: EllesmereUI Nameplates is loaded. env.ellesmere[unit]
+    -- is the frame it draws for that unit, made by env.ellesmereFrame(unit).
+    if opts.ellesmere then
+        env.ellesmere = {}
+        G.EllesmereNameplates_NS = { friendlyPlates = env.ellesmere }
+        function env.ellesmereFrame(unit)
+            local f = { alpha = 1 }
+            function f:SetAlpha(a) self.alpha = a end
+            env.ellesmere[unit] = f
+            return f
+        end
+    end
 
     -- A Blizzard plate: records the UnitFrame's alpha and anchors.
     function env.addPlate(unit, friend, health)
@@ -292,7 +312,7 @@ end)
 
 test("defines only its saved variable and slash commands as globals", function()
     local env = Load()
-    local stubs = { UnitInParty = 1, UnitInRaid = 1, STANDARD_TEXT_FONT = 1, UnitHealthMissing = 1, AbbreviateNumbers = 1, C_AddOns = 1, IsInRaid = 1, GetNumGroupMembers = 1, GetNumSubgroupMembers = 1, UnitIsPlayer = 1, UnitIsUnit = 1, UnitThreatSituation = 1, UnitPlayerOrPetInParty = 1, UnitPlayerOrPetInRaid = 1, C_NamePlate = 1, UnitIsFriend = 1, C_CurveUtil = 1, UnitHealthPercent = 1, C_Console = 1, CreateFrame = 1, InCombatLockdown = 1, date = 1, C_CVar = 1, SetCVar = 1, GetCVar = 1, print = 1, SlashCmdList = 1 }
+    local stubs = { UnitInParty = 1, UnitInRaid = 1, STANDARD_TEXT_FONT = 1, UnitHealthMissing = 1, AbbreviateNumbers = 1, C_AddOns = 1, C_Timer = 1, IsInRaid = 1, GetNumGroupMembers = 1, GetNumSubgroupMembers = 1, UnitIsPlayer = 1, UnitIsUnit = 1, UnitThreatSituation = 1, UnitPlayerOrPetInParty = 1, UnitPlayerOrPetInRaid = 1, C_NamePlate = 1, UnitIsFriend = 1, C_CurveUtil = 1, UnitHealthPercent = 1, C_Console = 1, CreateFrame = 1, InCombatLockdown = 1, date = 1, C_CVar = 1, SetCVar = 1, GetCVar = 1, print = 1, SlashCmdList = 1 }
     local names = {}
     for k in pairs(env.globals) do
         if not stubs[k] and k ~= "DynamicDisplayNameplateDB" and not k:match("^SLASH_DDN") then
@@ -311,7 +331,7 @@ test("every slash command uses the /ddn- prefix", function()
             assert(v:match("^/ddn%-%l+$"), k .. " = " .. v)
         end
     end
-    eq(n, 14, "slash commands")
+    eq(n, 15, "slash commands")
 end)
 
 test("every option but engaged is on by default on a fresh install", function()
@@ -939,6 +959,69 @@ test("group only hides friendly players outside your party or raid", function()
     eq(stranger.alpha, 1, "joined the group")
 end)
 
+test("EllesmereUI: group only hides the frame it draws once it exists", function()
+    local env = Load({ saved = Old({ groupOnly = true }), ellesmere = true })
+    addFriend(env, "nameplate1")
+    -- EllesmereUI handled the event after us: its frame exists only now.
+    local stranger = env.ellesmereFrame("nameplate1")
+    env.runTimers()
+    eq(stranger.alpha, 0, "stranger")
+    addFriend(env, "nameplate2", "party")
+    local member = env.ellesmereFrame("nameplate2")
+    env.runTimers()
+    eq(member.alpha, 1, "party member")
+    env.units.nameplate1.group = "party"
+    env.fire("GROUP_ROSTER_UPDATE")
+    eq(stranger.alpha, 1, "joined the group")
+end)
+
+test("EllesmereUI: a name-only plate it made solid again is hidden a frame later", function()
+    local env = Load({ saved = Old({ groupOnly = true }), ellesmere = true })
+    local uf = addFriend(env, "nameplate1")
+    eq(uf.alpha, 0, "hidden on add")
+    uf:SetAlpha(1)
+    env.runTimers()
+    eq(uf.alpha, 0, "hidden again")
+end)
+
+test("EllesmereUI: its frame follows the full-health fade", function()
+    local env = Load({ saved = Old({ fadeFull = true }), ellesmere = true })
+    addFriend(env, "nameplate1", "party", "full")
+    local own = env.ellesmereFrame("nameplate1")
+    env.runTimers()
+    eq(own.alpha, 0, "full health")
+    env.units.nameplate1.health = "hurt"
+    env.fire("UNIT_HEALTH", "nameplate1")
+    eq(own.alpha, 1, "hurt")
+end)
+
+test("EllesmereUI: pooled frames go back solid when the plate is removed", function()
+    local env = Load({ saved = Old({ groupOnly = true }), ellesmere = true })
+    local uf = addFriend(env, "nameplate1")
+    local own = env.ellesmereFrame("nameplate1")
+    env.runTimers()
+    eq(own.alpha, 0, "hidden")
+    -- EllesmereUI took its frame back before we heard of the removal.
+    env.ellesmere.nameplate1 = nil
+    env.fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+    eq(own.alpha, 1, "its frame")
+    eq(uf.alpha, 1, "Blizzard's frame")
+end)
+
+test("EllesmereUI: a timer for a plate that's gone does nothing", function()
+    local env = Load({ saved = Old({ groupOnly = true }), ellesmere = true })
+    local uf = addFriend(env, "nameplate1")
+    env.fire("NAME_PLATE_UNIT_REMOVED", "nameplate1")
+    env.runTimers()
+    eq(uf.alpha, 1, "left alone")
+end)
+
+test("without EllesmereUI no timer is set for new plates", function()
+    local env = Load({ saved = Old({ groupOnly = true }) })
+    addFriend(env, "nameplate1")
+    eq(#env.timers, 0, "timers")
+end)
+
 test("group only is off by default and turns off cleanly", function()
     local env = Load({ saved = Old() })
     local uf = addFriend(env, "nameplate1")
@@ -1110,6 +1193,28 @@ test("names leaves class colour alone when it was already on", function()
     local env = Load({ saved = Old({ names = true }), values = { nameplateUseClassColorForFriendlyPlayerUnitNames = "1" } })
     env.fire("PLAYER_ENTERING_WORLD", true, false)
     env.slash("/ddn-names off")
+    assert(not writes(env):find("ClassColor", 1, true), writes(env))
+end)
+
+test("names in class colour off gives the colour setting back and stops holding it", function()
+    local env = Load({ saved = Old({ names = true }), values = { nameplateUseClassColorForFriendlyPlayerUnitNames = "0" } })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    eq(env.values.nameplateUseClassColorForFriendlyPlayerUnitNames, "1", "held on")
+    env.slash("/ddn-classcolor off")
+    eq(env.values.nameplateUseClassColorForFriendlyPlayerUnitNames, "0", "put back")
+    eq(env.globals.DynamicDisplayNameplateDB.classColorBefore, nil, "old value cleared")
+    env.fire("PLAYER_REGEN_DISABLED")
+    env.fire("PLAYER_REGEN_ENABLED")
+    eq(env.values.nameplateUseClassColorForFriendlyPlayerUnitNames, "0", "left alone after")
+    env.slash("/ddn-classcolor on")
+    eq(env.values.nameplateUseClassColorForFriendlyPlayerUnitNames, "1", "held again")
+end)
+
+test("names in class colour does nothing while names is off", function()
+    local env = Load({ saved = Old() })
+    env.fire("PLAYER_ENTERING_WORLD", true, false)
+    env.slash("/ddn-classcolor off")
+    env.slash("/ddn-classcolor on")
     assert(not writes(env):find("ClassColor", 1, true), writes(env))
 end)
 

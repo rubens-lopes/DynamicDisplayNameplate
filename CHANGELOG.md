@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.1
+
+- New: "Names in class colour" (`/ddn-classcolor`), under "Show only their name". Turn it off and friendly players' names keep the game's own colour, the same one their name has from far away, in place of class colour. On by default, as before.
+- Works with EllesmereUI Nameplates on friendly plates: "Only your party or raid" (`/ddn-group`) and "Hide them" at full health (`/ddn-fadefull`) now also hide the plates EllesmereUI draws, in its health-bar and name-only styles. The other switches that change a plate (sides, missing health, level, and `/ddn-engaged` on enemy plates) still only work on Blizzard's plates.
+
 ## v0.5.0
 
 - New: hide the level on friendly player plates (`/ddn-level`). Friendly NPCs keep theirs, and the health bar keeps its width. Off by default.
